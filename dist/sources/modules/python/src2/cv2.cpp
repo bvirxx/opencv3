@@ -1,9 +1,96 @@
+#include <iostream>
+
 #if defined(_MSC_VER) && (_MSC_VER >= 1800)
 // eliminating duplicated round() declaration
 #define HAVE_ROUND 1
 #endif
 
-#include <Python.h>
+// added by BV. 
+#include <string>
+
+#ifdef _DEBUG
+#define CONFIG "Debug "
+#else
+#define CONFIG "Release "
+#endif
+
+#ifdef WITH_TBB
+#define VERSION "Multithread "
+#else
+#define VERSION " "
+#endif
+
+//Needed to build a debug version of cv2.pyd using a non debug version of python27.lib
+#ifdef _DEBUG
+  #undef _DEBUG
+  #include <Python.h>
+  #define _DEBUG
+#else
+  #include <Python.h>
+#endif
+
+#ifdef _DEBUG 
+
+// wrapper which passes no debug info; not available in debug
+void __cdecl _invalid_parameter_noinfo_noreturn(void)
+{
+
+}
+
+#endif /* def _DEBUG  */
+
+// Added by BV. By default, there is no handler for the bad_alloc exception
+// thrown when a call to new fails: It causes abnormal program termination.
+// We define a simple handler for bad_alloc, which calls exit. 
+// We set the handler by calling set_new_handler in the DLL initialization function
+// DllMain.
+
+// std::bad_alloc custom handler.
+void __cdecl no_mem()
+{
+	std::cout << "No memory left. Exiting\n";
+	exit(1);
+}
+
+
+#include <CoreWindow.h>
+
+extern std::string grbct_vrsn;  // grabcut current version
+
+BOOL WINAPI DllMain(
+	HINSTANCE hinstDLL,  // handle to DLL module
+	DWORD fdwReason,     // reason for calling function
+	LPVOID lpReserved)  // reserved
+{
+	// Perform actions based on the reason for calling.
+	switch (fdwReason)
+	{
+	case DLL_PROCESS_ATTACH:
+		// Initialize once for each new process.
+		// Return FALSE to fail DLL load.
+		std::cout << "loading cv2 "CONFIG VERSION"\n";
+		std::cout << grbct_vrsn + '\n';
+		std::cout << "cv2 : Setting exception handler for operator new\n" << std::flush;
+		// Set the handler for bad_alloc
+		std::set_new_handler(no_mem);
+		break;
+
+	case DLL_THREAD_ATTACH:
+		// Do thread-specific initialization.
+		break;
+
+	case DLL_THREAD_DETACH:
+		// Do thread-specific cleanup.
+		break;
+
+	case DLL_PROCESS_DETACH:
+		// Perform any necessary cleanup.
+		break;
+	}
+	return TRUE;  // Successful DLL_PROCESS_ATTACH.
+}
+
+// BV end of addition
 
 #define MODULESTR "cv2"
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
