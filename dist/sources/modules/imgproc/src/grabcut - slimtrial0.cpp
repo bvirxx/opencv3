@@ -42,8 +42,21 @@
 #include "precomp.hpp"
 #include "gcgraph.hpp"
 #include <limits>
+#include <time.h>
 
 using namespace cv;
+
+// Use simplified GC Graph
+#define SLIM
+
+#ifdef SLIM
+	#define GRABCUT_VERSION  "Grabcut-slim "
+#else
+	#define GRABCUT_VERSION  " "
+#endif
+
+std::string grbct_vrsn = GRABCUT_VERSION;
+
 
 /*
 This is implementation of image segmentation algorithm GrabCut described in
@@ -441,63 +454,101 @@ static void learnGMMs( const Mat& img, const Mat& mask, const Mat& compIdxs, GMM
 }
 
 /*
+ we use graph simplification
+*/
+#ifdef SLIM
+
+
+/*
   Construct GCGraph
 */
 static void constructGCGraph( const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, double lambda,
                        const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW,
-                       GCGraph<double>& graph )
+					   GCGraph<double>& graph, Mat& pxl2Vtx)
 {
     int vtxCount = img.cols*img.rows,
         edgeCount = 2*(4*img.cols*img.rows - 3*(img.cols + img.rows) + 2);
+	
     graph.create(vtxCount, edgeCount);
     Point p;
+	int vtxIdx;
     for( p.y = 0; p.y < img.rows; p.y++ )
     {
         for( p.x = 0; p.x < img.cols; p.x++)
-        {
-            // add node
-            int vtxIdx = graph.addVtx();
+        {     
             Vec3b color = img.at<Vec3b>(p);
-
+			
             // set t-weights
             double fromSource, toSink;
             if( mask.at<uchar>(p) == GC_PR_BGD || mask.at<uchar>(p) == GC_PR_FGD )
             {
+				// add node
+				vtxIdx = graph.addVtx();
+				pxl2Vtx.at<int>(p) = vtxIdx;
                 fromSource = -log( bgdGMM(color) );
                 toSink = -log( fgdGMM(color) );
+				graph.addTermWeights(vtxIdx, fromSource, toSink);
             }
             else if( mask.at<uchar>(p) == GC_BGD )
             {
+				pxl2Vtx.at<int>(p) = -1; // set vertx to BG
                 fromSource = 0;
                 toSink = lambda;
+				continue;
             }
             else // GC_FGD
             {
+				pxl2Vtx.at<int>(p) = -2; //set vertex to FG
                 fromSource = lambda;
                 toSink = 0;
+				continue;
             }
-            graph.addTermWeights( vtxIdx, fromSource, toSink );
-
+            
+			/*
+			{
+				if (p.x > 0)
+					if (pxl2Vtx.at<int>(Point(p.x - 1, p.y)) >= 0) // West neighbor not terminal : weight update
+						graph.addTermWeights(pxl2Vtx.at<int>(Point(p.x - 1, p.y)), fromSource, toSink);
+				if (p.x > 0 && p.y > 0)
+					if (pxl2Vtx.at<int>(Point(p.x - 1, p.y - 1)) >= 0) // NW neighbor not terminal : weight update
+						graph.addTermWeights(pxl2Vtx.at<int>(Point(p.x - 1, p.y - 1)), fromSource, toSink);
+				if (p.y > 0)
+					if (pxl2Vtx.at<int>(Point(p.x, p.y-1)) >= 0) // N neighbor not terminal : weight update
+						graph.addTermWeights(pxl2Vtx.at<int>(Point(p.x, p.y - 1)), fromSource, toSink);
+				if (p.x < img.cols - 1 && p.y>0)
+					if (pxl2Vtx.at<int>(Point(p.x + 1, p.y - 1)) >= 0) // NE neighbor not terminal : weight update
+						graph.addTermWeights(pxl2Vtx.at<int>(Point(p.x + 1, p.y - 1)), fromSource, toSink);
+			}
+			*/
             // set n-weights
+			
             if( p.x>0 )
             {
                 double w = leftW.at<double>(p);
-                graph.addEdges( vtxIdx, vtxIdx-1, w, w );
+                //graph.addEdges( vtxIdx, vtxIdx-1, w, w );  //W
+				if (pxl2Vtx.at<int>(Point(p.x - 1, p.y)) >= 0)
+					graph.addEdges(pxl2Vtx.at<int>(p), pxl2Vtx.at<int>(Point(p.x - 1, p.y)), w, w);  //W
             }
             if( p.x>0 && p.y>0 )
             {
                 double w = upleftW.at<double>(p);
-                graph.addEdges( vtxIdx, vtxIdx-img.cols-1, w, w );
+                //graph.addEdges( vtxIdx, vtxIdx-img.cols-1, w, w );  //NW
+				if (pxl2Vtx.at<int>(Point(p.x - 1, p.y - 1)) >= 0)
+					graph.addEdges(pxl2Vtx.at<int>(p), pxl2Vtx.at<int>(Point(p.x - 1, p.y - 1)), w, w);  //NW
             }
             if( p.y>0 )
             {
                 double w = upW.at<double>(p);
-                graph.addEdges( vtxIdx, vtxIdx-img.cols, w, w );
+                //graph.addEdges( vtxIdx, vtxIdx-img.cols, w, w ); // N
+				if (pxl2Vtx.at<int>(Point(p.x, p.y - 1)) >= 0)
+					graph.addEdges(pxl2Vtx.at<int>(p), pxl2Vtx.at<int>(Point(p.x, p.y - 1)), w, w);  //N
             }
             if( p.x<img.cols-1 && p.y>0 )
             {
                 double w = uprightW.at<double>(p);
-                graph.addEdges( vtxIdx, vtxIdx-img.cols+1, w, w );
+                //graph.addEdges( vtxIdx, vtxIdx-img.cols+1, w, w ); // NE
+				if (pxl2Vtx.at<int>(Point(p.x + 1, p.y - 1)) >= 0)
+					graph.addEdges(pxl2Vtx.at<int>(p), pxl2Vtx.at<int>(Point(p.x+1, p.y-1)), w, w);  //NE
             }
         }
     }
@@ -506,7 +557,7 @@ static void constructGCGraph( const Mat& img, const Mat& mask, const GMM& bgdGMM
 /*
   Estimate segmentation using MaxFlow algorithm
 */
-static void estimateSegmentation( GCGraph<double>& graph, Mat& mask )
+static void estimateSegmentation( GCGraph<double>& graph, Mat& mask, Mat& ptx2Vtx )
 {
     graph.maxFlow();
     Point p;
@@ -516,7 +567,17 @@ static void estimateSegmentation( GCGraph<double>& graph, Mat& mask )
         {
             if( mask.at<uchar>(p) == GC_PR_BGD || mask.at<uchar>(p) == GC_PR_FGD )
             {
-                if( graph.inSourceSegment( p.y*mask.cols+p.x /*vertex index*/ ) )
+				if (ptx2Vtx.at<int>(p) == -1)
+				{
+					mask.at<uchar>(p) = GC_PR_BGD;
+					continue;
+				}
+				if (ptx2Vtx.at<int>(p) == -2)
+				{
+					mask.at<uchar>(p) = GC_PR_BGD;
+					continue;
+				}
+				if (graph.inSourceSegment(ptx2Vtx.at<int>(p))) // p.y*mask.cols+p.x /*vertex index*/ ) )
                     mask.at<uchar>(p) = GC_PR_FGD;
                 else
                     mask.at<uchar>(p) = GC_PR_BGD;
@@ -541,14 +602,18 @@ void cv::grabCut( InputArray _img, InputOutputArray _mask, Rect rect,
 
     GMM bgdGMM( bgdModel ), fgdGMM( fgdModel );
     Mat compIdxs( img.size(), CV_32SC1 );
+	Mat pxl2Vtx(img.size(), CV_32SC1);   // pixel vertices
 
+	clock_t tStart;
     if( mode == GC_INIT_WITH_RECT || mode == GC_INIT_WITH_MASK )
     {
         if( mode == GC_INIT_WITH_RECT )
             initMaskWithRect( mask, img.size(), rect );
         else // flag == GC_INIT_WITH_MASK
             checkMask( img, mask );
+		tStart = clock();
         initGMMs( img, mask, bgdGMM, fgdGMM );
+		printf("initGMM: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
     }
 
     if( iterCount <= 0)
@@ -559,17 +624,181 @@ void cv::grabCut( InputArray _img, InputOutputArray _mask, Rect rect,
 
     const double gamma = 50;
     const double lambda = 9*gamma;
+	tStart = clock();
     const double beta = calcBeta( img );
+	printf("calcBeta: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
 
-    Mat leftW, upleftW, upW, uprightW;
+    Mat leftW, upleftW, upW, uprightW, sigmaNW;
+
+	tStart = clock();
     calcNWeights( img, leftW, upleftW, upW, uprightW, beta, gamma );
-
+	printf("calcNWeights: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
+	
     for( int i = 0; i < iterCount; i++ )
     {
         GCGraph<double> graph;
+		tStart = clock();
         assignGMMsComponents( img, mask, bgdGMM, fgdGMM, compIdxs );
+		printf("assignGMMsComponents: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
+
+		tStart = clock();
         learnGMMs( img, mask, compIdxs, bgdGMM, fgdGMM );
-        constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph );
-        estimateSegmentation( graph, mask );
+		printf("learnGMMs: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
+
+		tStart = clock();
+        constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph, pxl2Vtx);
+		printf("construcGCGraph: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
+
+		tStart = clock();
+        estimateSegmentation( graph, mask, pxl2Vtx );
+		printf("estimateSegmentation: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
     }
 }
+
+/*
+  code with no graph simplification
+*/
+#else  
+/*
+Construct GCGraph
+*/
+static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, double lambda,
+	const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW,
+	GCGraph<double>& graph)
+{
+	int vtxCount = img.cols*img.rows,
+		edgeCount = 2 * (4 * img.cols*img.rows - 3 * (img.cols + img.rows) + 2);
+	graph.create(vtxCount, edgeCount);
+	Point p;
+	for (p.y = 0; p.y < img.rows; p.y++)
+	{
+		for (p.x = 0; p.x < img.cols; p.x++)
+		{
+			// add node
+			int vtxIdx = graph.addVtx();
+			Vec3b color = img.at<Vec3b>(p);
+
+			// set t-weights
+			double fromSource, toSink;
+			if (mask.at<uchar>(p) == GC_PR_BGD || mask.at<uchar>(p) == GC_PR_FGD)
+			{
+				fromSource = -log(bgdGMM(color));
+				toSink = -log(fgdGMM(color));
+			}
+			else if (mask.at<uchar>(p) == GC_BGD)
+			{
+				fromSource = 0;
+				toSink = lambda;
+			}
+			else // GC_FGD
+			{
+				fromSource = lambda;
+				toSink = 0;
+			}
+			graph.addTermWeights(vtxIdx, fromSource, toSink);
+
+			// set n-weights
+			if (p.x>0)
+			{
+				double w = leftW.at<double>(p);
+				graph.addEdges(vtxIdx, vtxIdx - 1, w, w);
+			}
+			if (p.x>0 && p.y>0)
+			{
+				double w = upleftW.at<double>(p);
+				graph.addEdges(vtxIdx, vtxIdx - img.cols - 1, w, w);
+			}
+			if (p.y>0)
+			{
+				double w = upW.at<double>(p);
+				graph.addEdges(vtxIdx, vtxIdx - img.cols, w, w);
+			}
+			if (p.x<img.cols - 1 && p.y>0)
+			{
+				double w = uprightW.at<double>(p);
+				graph.addEdges(vtxIdx, vtxIdx - img.cols + 1, w, w);
+			}
+		}
+	}
+}
+
+/*
+Estimate segmentation using MaxFlow algorithm
+*/
+static void estimateSegmentation(GCGraph<double>& graph, Mat& mask)
+{
+	graph.maxFlow();
+	Point p;
+	for (p.y = 0; p.y < mask.rows; p.y++)
+	{
+		for (p.x = 0; p.x < mask.cols; p.x++)
+		{
+			if (mask.at<uchar>(p) == GC_PR_BGD || mask.at<uchar>(p) == GC_PR_FGD)
+			{
+				if (graph.inSourceSegment(p.y*mask.cols + p.x /*vertex index*/))
+					mask.at<uchar>(p) = GC_PR_FGD;
+				else
+					mask.at<uchar>(p) = GC_PR_BGD;
+			}
+		}
+	}
+}
+
+void cv::grabCut(InputArray _img, InputOutputArray _mask, Rect rect,
+	InputOutputArray _bgdModel, InputOutputArray _fgdModel,
+	int iterCount, int mode)
+{
+	Mat img = _img.getMat();
+	Mat& mask = _mask.getMatRef();
+	Mat& bgdModel = _bgdModel.getMatRef();
+	Mat& fgdModel = _fgdModel.getMatRef();
+	clock_t tStart;
+
+	if (img.empty())
+		CV_Error(CV_StsBadArg, "image is empty");
+	if (img.type() != CV_8UC3)
+		CV_Error(CV_StsBadArg, "image must have CV_8UC3 type");
+
+	GMM bgdGMM(bgdModel), fgdGMM(fgdModel);
+	Mat compIdxs(img.size(), CV_32SC1);
+
+	if (mode == GC_INIT_WITH_RECT || mode == GC_INIT_WITH_MASK)
+	{
+		if (mode == GC_INIT_WITH_RECT)
+			initMaskWithRect(mask, img.size(), rect);
+		else // flag == GC_INIT_WITH_MASK
+			checkMask(img, mask);
+		initGMMs(img, mask, bgdGMM, fgdGMM);
+	}
+
+	if (iterCount <= 0)
+		return;
+
+	if (mode == GC_EVAL)
+		checkMask(img, mask);
+
+	const double gamma = 50;
+	const double lambda = 9 * gamma;
+	const double beta = calcBeta(img);
+
+	Mat leftW, upleftW, upW, uprightW;
+	calcNWeights(img, leftW, upleftW, upW, uprightW, beta, gamma);
+
+	for (int i = 0; i < iterCount; i++)
+	{
+		GCGraph<double> graph;
+		assignGMMsComponents(img, mask, bgdGMM, fgdGMM, compIdxs);
+		learnGMMs(img, mask, compIdxs, bgdGMM, fgdGMM);
+
+		tStart = clock();
+		constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph);
+		printf("construcGCGraph: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
+
+		tStart = clock();
+		estimateSegmentation(graph, mask);
+		printf("estimateSegmentation: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
+	}
+}
+
+
+#endif 
