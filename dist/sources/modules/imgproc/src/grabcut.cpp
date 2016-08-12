@@ -453,10 +453,11 @@ static void learnGMMs( const Mat& img, const Mat& mask, const Mat& compIdxs, GMM
     fgdGMM.endLearning();
 }
 
-/*
- we use graph simplification
-*/
+
 #ifdef SLIM
+/*
+we use graph simplification
+*/
 
 
 /*
@@ -472,6 +473,7 @@ static void constructGCGraph( const Mat& img, const Mat& mask, const GMM& bgdGMM
     graph.create(vtxCount, edgeCount);
     Point p;
 	int vtxIdx;
+	double s2tw=0.0;  // source to sink weight
     for( p.y = 0; p.y < img.rows; p.y++ )
     {
         for( p.x = 0; p.x < img.cols; p.x++)
@@ -490,19 +492,22 @@ static void constructGCGraph( const Mat& img, const Mat& mask, const GMM& bgdGMM
 				graph.addTermWeights(vtxIdx, fromSource, toSink);
             }
             else if( mask.at<uchar>(p) == GC_BGD )
+			// join to sink
             {
-				pxl2Vtx.at<int>(p) = -1; // set vertx to BG
-                fromSource = 0;
-                toSink = lambda;
+				pxl2Vtx.at<int>(p) = -1; // join node to sink (BG)
+                fromSource = 0;  // as fromSource=0, weight of edge(source, sink) is unmodified
+                toSink = lambda; // edge deleted by the join operation
 				continue;
             }
             else // GC_FGD
+			// join to source
             {
-				pxl2Vtx.at<int>(p) = -2; //set vertex to FG
-                fromSource = lambda;
-                toSink = 0;
+				pxl2Vtx.at<int>(p) = -2; // join node to source (FG)
+                fromSource = lambda; // edge deleted by the join operation
+                toSink = 0; // as toSink=0, weight of edge(source, sink) is unmodified
 				continue;
             }
+	
             
 			/*
 			{
@@ -520,35 +525,74 @@ static void constructGCGraph( const Mat& img, const Mat& mask, const GMM& bgdGMM
 						graph.addTermWeights(pxl2Vtx.at<int>(Point(p.x + 1, p.y - 1)), fromSource, toSink);
 			}
 			*/
-            // set n-weights
-			
-            if( p.x>0 )
-            {
-                double w = leftW.at<double>(p);
-                //graph.addEdges( vtxIdx, vtxIdx-1, w, w );  //W
-				if (pxl2Vtx.at<int>(Point(p.x - 1, p.y)) >= 0)
-					graph.addEdges(pxl2Vtx.at<int>(p), pxl2Vtx.at<int>(Point(p.x - 1, p.y)), w, w);  //W
+            // Node was not joined to sink/source. 
+			// Set n-weights for non terminal neighbors
+			// and update t-weights for terminal neighbors.
+			if (p.x > 0)
+			{
+				double w = leftW.at<double>(p);
+				int n = pxl2Vtx.at<int>(Point(p.x - 1, p.y));
+				//graph.addEdges( vtxIdx, vtxIdx-1, w, w );  //W
+				if (n >= 0)  // W-neighbor node is neither source nor sink
+					graph.addEdges(pxl2Vtx.at<int>(p), n, w, w);  //W
+				else // neighbor is terminal
+				{
+					fromSource = (n==-1 ? 0:w); // -1: n is sink
+					toSink = (n == -2 ? 0 : w); 
+					graph.addTermWeights(pxl2Vtx.at<int>(p), fromSource, toSink);
+				}
             }
             if( p.x>0 && p.y>0 )
             {
                 double w = upleftW.at<double>(p);
+				int n = pxl2Vtx.at<int>(Point(p.x - 1, p.y - 1));
                 //graph.addEdges( vtxIdx, vtxIdx-img.cols-1, w, w );  //NW
-				if (pxl2Vtx.at<int>(Point(p.x - 1, p.y - 1)) >= 0)
-					graph.addEdges(pxl2Vtx.at<int>(p), pxl2Vtx.at<int>(Point(p.x - 1, p.y - 1)), w, w);  //NW
+				if (n >= 0) // NW-neighbor node is neither source nor sink
+					graph.addEdges(pxl2Vtx.at<int>(p), n, w, w);
+				else 
+				{
+					fromSource = (n == -1 ? 0 : w); // -1: n is sink
+					toSink = (n == -2 ? 0 : w);
+					graph.addTermWeights(pxl2Vtx.at<int>(p), fromSource, toSink);
+				}
             }
             if( p.y>0 )
             {
                 double w = upW.at<double>(p);
                 //graph.addEdges( vtxIdx, vtxIdx-img.cols, w, w ); // N
 				if (pxl2Vtx.at<int>(Point(p.x, p.y - 1)) >= 0)
-					graph.addEdges(pxl2Vtx.at<int>(p), pxl2Vtx.at<int>(Point(p.x, p.y - 1)), w, w);  //N
+					graph.addEdges(pxl2Vtx.at<int>(p), pxl2Vtx.at<int>(Point(p.x, p.y - 1)), w, w);
+				else if (pxl2Vtx.at<int>(Point(p.x, p.y - 1)) == -1)  // N-neighbor is sink
+				{
+					fromSource = 0;
+					toSink = w;
+					graph.addTermWeights(pxl2Vtx.at<int>(p), fromSource, toSink);
+				}
+				else
+				{
+					fromSource = w;
+					toSink = 0;
+					graph.addTermWeights(pxl2Vtx.at<int>(p), fromSource, toSink);
+				}
             }
             if( p.x<img.cols-1 && p.y>0 )
             {
                 double w = uprightW.at<double>(p);
                 //graph.addEdges( vtxIdx, vtxIdx-img.cols+1, w, w ); // NE
 				if (pxl2Vtx.at<int>(Point(p.x + 1, p.y - 1)) >= 0)
-					graph.addEdges(pxl2Vtx.at<int>(p), pxl2Vtx.at<int>(Point(p.x+1, p.y-1)), w, w);  //NE
+					graph.addEdges(pxl2Vtx.at<int>(p), pxl2Vtx.at<int>(Point(p.x+1, p.y-1)), w, w);
+				else if (pxl2Vtx.at<int>(Point(p.x + 1, p.y - 1)) == -1)  // NE-neighbor is sink
+				{
+					fromSource = 0;
+					toSink = w;
+					graph.addTermWeights(pxl2Vtx.at<int>(p), fromSource, toSink);
+				}
+				else
+				{
+					fromSource = w;
+					toSink = 0;
+					graph.addTermWeights(pxl2Vtx.at<int>(p), fromSource, toSink);
+				}
             }
         }
     }

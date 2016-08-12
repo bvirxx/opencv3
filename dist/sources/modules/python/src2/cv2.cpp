@@ -5,7 +5,9 @@
 #define HAVE_ROUND 1
 #endif
 
-// added by BV. 
+//*********
+// added by BV.
+//*********
 #include <string>
 
 #ifdef _DEBUG
@@ -37,7 +39,7 @@ void __cdecl _invalid_parameter_noinfo_noreturn(void)
 
 }
 
-#endif /* def _DEBUG  */
+#endif /* ifdef _DEBUG  */
 
 // Added by BV. By default, there is no handler for the bad_alloc exception
 // thrown when a call to new fails: It causes abnormal program termination.
@@ -57,6 +59,9 @@ void __cdecl no_mem()
 
 extern std::string grbct_vrsn;  // grabcut current version
 
+// Initialization routine
+// Set bad_alloc handler and 
+// display versions
 BOOL WINAPI DllMain(
 	HINSTANCE hinstDLL,  // handle to DLL module
 	DWORD fdwReason,     // reason for calling function
@@ -68,9 +73,12 @@ BOOL WINAPI DllMain(
 	case DLL_PROCESS_ATTACH:
 		// Initialize once for each new process.
 		// Return FALSE to fail DLL load.
+
+		// display versions
 		std::cout << "loading cv2 "CONFIG VERSION"\n";
 		std::cout << grbct_vrsn + '\n';
 		std::cout << "cv2 : Setting exception handler for operator new\n" << std::flush;
+
 		// Set the handler for bad_alloc
 		std::set_new_handler(no_mem);
 		break;
@@ -89,8 +97,9 @@ BOOL WINAPI DllMain(
 	}
 	return TRUE;  // Successful DLL_PROCESS_ATTACH.
 }
-
-// BV end of addition
+//********
+//BV end of addition
+//********
 
 #define MODULESTR "cv2"
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
