@@ -345,6 +345,14 @@ enum GrabCutClasses {
     GC_PR_FGD = 3   //!< a possible foreground pixel
 };
 
+// Added by BV
+// class of the pixels joined to a terminal node in the slim version of grabCut algorithm
+enum GrabCutTermClasses {
+    GC_JNT_BGD = -1, // a pixel joined to BG
+    GC_JNT_FGD = -2	// a pixel joined to FG
+};
+// end of addition. BV
+
 //! GrabCut algorithm flags
 enum GrabCutModes {
     /** The function initializes the state and the mask using the provided rectangle. After that it
