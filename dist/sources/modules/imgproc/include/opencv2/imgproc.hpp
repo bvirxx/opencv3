@@ -3104,6 +3104,15 @@ CV_EXPORTS_W void grabCut( InputArray img, InputOutputArray mask, Rect rect,
                            InputOutputArray bgdModel, InputOutputArray fgdModel,
                            int iterCount, int mode = GC_EVAL );
 
+/* Added by BV
+* export slim version 
+* of the grabcut algorithm
+*/
+CV_EXPORTS_W void grabCut_slim( InputArray img, InputOutputArray mask, Rect rect,
+                               InputOutputArray bgdModel, InputOutputArray fgdModel,
+                               int iterCount, int mode = GC_EVAL );
+/* End of addition*/
+
 /** @example distrans.cpp
 An example on using the distance transform\
 */
