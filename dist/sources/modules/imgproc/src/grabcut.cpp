@@ -46,18 +46,6 @@
 
 using namespace cv;
 
-// Use simplified GC Graph
-#define SLIM
-
-#ifdef SLIM
-	#define GRABCUT_VERSION  "Grabcut-slim "
-#else
-	#define GRABCUT_VERSION  " "
-#endif
-
-std::string grbct_vrsn = GRABCUT_VERSION;
-
-
 /*
 This is implementation of image segmentation algorithm GrabCut described in
 "GrabCut — Interactive Foreground Extraction using Iterated Graph Cuts".
@@ -454,16 +442,10 @@ static void learnGMMs( const Mat& img, const Mat& mask, const Mat& compIdxs, GMM
 }
 
 
-#ifdef SLIM
-/*
-we use graph simplification
-*/
-
-
-/*
-  Construct GCGraph
-*/
-static void constructGCGraph( const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, double lambda,
+/*#ifdef SLIM*/
+// Slim version of Construct GCGraph. 
+// Author BV
+static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, double lambda,
                        const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW,
 					   GCGraph<double>& graph, Mat& pxl2Vtx)
 {
@@ -598,10 +580,9 @@ static void constructGCGraph( const Mat& img, const Mat& mask, const GMM& bgdGMM
     }
 }
 
-/*
-  Estimate segmentation using MaxFlow algorithm
-*/
-static void estimateSegmentation( GCGraph<double>& graph, Mat& mask, Mat& ptx2Vtx )
+
+//  Slim version of Estimate segmentation using MaxFlow algorithm
+static void estimateSegmentation_slim( GCGraph<double>& graph, Mat& mask, Mat& ptx2Vtx )
 {
     graph.maxFlow();
     Point p;
@@ -630,7 +611,8 @@ static void estimateSegmentation( GCGraph<double>& graph, Mat& mask, Mat& ptx2Vt
     }
 }
 
-void cv::grabCut( InputArray _img, InputOutputArray _mask, Rect rect,
+// Slim version of Grabcut algorithm
+void cv::grabCut_slim( InputArray _img, InputOutputArray _mask, Rect rect,
                   InputOutputArray _bgdModel, InputOutputArray _fgdModel,
                   int iterCount, int mode )
 {
@@ -690,19 +672,17 @@ void cv::grabCut( InputArray _img, InputOutputArray _mask, Rect rect,
 		printf("learnGMMs: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
 
 		tStart = clock();
-        constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph, pxl2Vtx);
+        constructGCGraph_slim(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph, pxl2Vtx);
 		printf("construcGCGraph: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
 
 		tStart = clock();
-        estimateSegmentation( graph, mask, pxl2Vtx );
+        estimateSegmentation_slim( graph, mask, pxl2Vtx );
 		printf("estimateSegmentation: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
     }
 }
+// End of modification. BV
 
-/*
-  code with no graph simplification
-*/
-#else  
+/*#else  */
 /*
 Construct GCGraph
 */
@@ -845,4 +825,4 @@ void cv::grabCut(InputArray _img, InputOutputArray _mask, Rect rect,
 }
 
 
-#endif 
+/*#endif */
