@@ -57,8 +57,6 @@ void __cdecl no_mem()
 
 #include <CoreWindow.h>
 
-extern std::string grbct_vrsn;  // grabcut current version
-
 // Initialization routine
 // Set bad_alloc handler and 
 // display versions
@@ -76,7 +74,6 @@ BOOL WINAPI DllMain(
 
 		// display versions
 		std::cout << "loading cv2 "CONFIG VERSION"\n";
-		std::cout << grbct_vrsn + '\n';
 		std::cout << "cv2 : Setting exception handler for operator new\n" << std::flush;
 
 		// Set the handler for bad_alloc
