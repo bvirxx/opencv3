@@ -351,6 +351,9 @@ enum GrabCutTermClasses {
     GC_JNT_BGD = -1, // a pixel joined to BG
     GC_JNT_FGD = -2	// a pixel joined to FG
 };
+
+#define jbg(p) ( (p) == GC_JNT_BGD )
+#define jfg(p) ( (p) == GC_JNT_FGD )
 // end of addition. BV
 
 //! GrabCut algorithm flags
