@@ -441,6 +441,83 @@ static void learnGMMs( const Mat& img, const Mat& mask, const Mat& compIdxs, GMM
     fgdGMM.endLearning();
 }
 
+// Init matrix sigmaW of pixel node total weight
+static void calcSumW(const Mat& img, Mat& sigmaW, const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW)
+{
+	Point p;
+
+	sigmaW.create(img.rows, img.cols, CV_64FC1);
+	
+	for (p.y = 0; p.y < img.rows; p.y++)
+	{
+		for (p.x = 0; p.x < img.cols; p.x++)
+		{
+			sigmaW.at<double>(p.y, p.x) = 0;
+			sigmaW.at<double>(p) += leftW.at<double>(p);
+			sigmaW.at<double>(p.y, p.x) += upleftW.at<double>(p);
+			sigmaW.at<double>(p.y, p.x) += upW.at<double>(p);
+			sigmaW.at<double>(p.y, p.x) += uprightW.at<double>(p);
+
+			if (p.x < img.cols-1)
+				sigmaW.at<double>(p) += leftW.at<double>(p.y, p.x+1);
+			if (p.x < img.cols - 1 && p.y < img.rows-1)
+				sigmaW.at<double>(p.y, p.x) += upleftW.at<double>(p.y+1, p.x+1);
+			if (p.y < img.rows - 1)
+				sigmaW.at<double>(p.y, p.x) += upleftW.at<double>(p.y + 1, p.x );
+			if (p.x > 0 && p.y < img.rows - 1)
+				sigmaW.at<double>(p.y, p.x) += upleftW.at<double>(p.y + 1, p.x-1);
+		}
+
+	}
+}
+
+// compute sum of weights for all edges adjacent to node vtx, including
+// pending edges.
+static double slimSumW(const Mat& img, const int i, const Point p, GCGraph<double>& graph, 
+	                            const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW,
+								const Mat_<Point>& Vtx2pxl)
+{
+	double s = graph.sumW(i); // sum of weights for edges adjacent to vtx[i]
+
+	// add weights of pending edges
+	
+	Point pxl = graph.getFirstP(i);  
+	for (Point pxl = graph.getFirstP(i); pxl != Point(-1, -1); pxl = Vtx2pxl.at<Point>(p))
+	{
+		if (((pxl.y == p.y) && (pxl.x < p.x)) || ((pxl.y == p.y - 1) && (pxl.x> p.x)))  // border pixel
+		{
+			if (pxl.y < img.rows - 1)
+			{
+				s += upW.at<double>(pxl.x, pxl.y + 1);
+
+				if (pxl.x > 0)
+					s += uprightW.at<double>(pxl.x - 1, pxl.y + 1);
+
+				if (pxl.x < img.cols - 1)
+					s += upleftW.at<double>(pxl.x + 1, pxl.y + 1);
+
+				if ((pxl.x == p.x - 1) && (pxl.y == p.y))
+					s += leftW.at<double>(pxl.x + 1, pxl.y);
+
+			}
+		}
+	}
+	return s;
+}
+
+static int searchJoin(Point p, const Mat& sigmaW, Mat& pxl2Vtx, const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW)
+{
+
+	if (p.x > 0)
+		if (leftW.at<double>(p.x - 1, p.y) > 0.5 * sigmaW.at<double>(p) )
+			return pxl2Vtx.at<int>(p.x-1, p.y);
+	if ((p.x > 0) && (p.y>0))
+		if (upleftW.at<double>(p.x - 1, p.y-1) > 0.5 * sigmaW.at<double>(p))
+			return pxl2Vtx.at<int>(p.x - 1, p.y - 1);
+	// to be coàmpleted
+
+	return -1;
+}
 
 /*#ifdef SLIM*/
 // Slim version of Construct GCGraph. 
@@ -456,6 +533,13 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
     Point p;
 	int vtxIdx;
 	double s2tw=0.0;  // source to sink weight
+	//int count = 0;
+
+	Mat_<Point> Vtx2pxl(img.rows, img.cols); // lists of pixels joined to vertices
+	Mat_<double> sigmaW(img.rows, img.cols);
+	Vtx2pxl = Point(-1, -1);
+	calcSumW(img, sigmaW, leftW, upleftW, upW, uprightW);
+
     for( p.y = 0; p.y < img.rows; p.y++ )
     {
         for( p.x = 0; p.x < img.cols; p.x++)
@@ -467,124 +551,132 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
             if( mask.at<uchar>(p) == GC_PR_BGD || mask.at<uchar>(p) == GC_PR_FGD )
             {
 				// add node
-				vtxIdx = graph.addVtx();
-				pxl2Vtx.at<int>(p) = vtxIdx;
+				int i = searchJoin(p, sigmaW, pxl2Vtx, leftW, upleftW, upW, uprightW);
+				if (i != -1)
+				{
+					printf("joinable vtx found\n");
+					vtxIdx = i;
+					pxl2Vtx.at<int>(p) = vtxIdx;
+					Vtx2pxl.at<Point>(p) = graph.getFirstP(vtxIdx);
+					graph.setFirstP(vtxIdx, p);
+				}
+				else
+				{
+					vtxIdx = graph.addVtx();
+					pxl2Vtx.at<int>(p) = vtxIdx;
+					graph.setFirstP(vtxIdx, p);  // first and last pixel
+
+				}
                 fromSource = -log( bgdGMM(color) );
                 toSink = -log( fgdGMM(color) );
 				graph.addTermWeights(vtxIdx, fromSource, toSink);
+				//printf("slim from source: %.2f color %d %d %d", fromSource, color[0], color[1], color[2]);
             }
             else if( mask.at<uchar>(p) == GC_BGD )
 			// join to sink
             {
-				pxl2Vtx.at<int>(p) = -1; // join node to sink (BG)
+				pxl2Vtx.at<int>(p) = GC_JNT_BGD; // join node to sink (BG) -1 = GC_JNT_BGD
                 fromSource = 0;  // as fromSource=0, weight of edge(source, sink) is unmodified
                 toSink = lambda; // edge deleted by the join operation
-				continue;
+				//continue;
             }
             else // GC_FGD
 			// join to source
             {
-				pxl2Vtx.at<int>(p) = -2; // join node to source (FG)
+				pxl2Vtx.at<int>(p) = GC_JNT_FGD; // join node to source (FG) -2=GC_JNT_FGD
                 fromSource = lambda; // edge deleted by the join operation
                 toSink = 0; // as toSink=0, weight of edge(source, sink) is unmodified
-				continue;
+				//continue;
             }
 	
             
-			/*
-			{
-				if (p.x > 0)
-					if (pxl2Vtx.at<int>(Point(p.x - 1, p.y)) >= 0) // West neighbor not terminal : weight update
-						graph.addTermWeights(pxl2Vtx.at<int>(Point(p.x - 1, p.y)), fromSource, toSink);
-				if (p.x > 0 && p.y > 0)
-					if (pxl2Vtx.at<int>(Point(p.x - 1, p.y - 1)) >= 0) // NW neighbor not terminal : weight update
-						graph.addTermWeights(pxl2Vtx.at<int>(Point(p.x - 1, p.y - 1)), fromSource, toSink);
-				if (p.y > 0)
-					if (pxl2Vtx.at<int>(Point(p.x, p.y-1)) >= 0) // N neighbor not terminal : weight update
-						graph.addTermWeights(pxl2Vtx.at<int>(Point(p.x, p.y - 1)), fromSource, toSink);
-				if (p.x < img.cols - 1 && p.y>0)
-					if (pxl2Vtx.at<int>(Point(p.x + 1, p.y - 1)) >= 0) // NE neighbor not terminal : weight update
-						graph.addTermWeights(pxl2Vtx.at<int>(Point(p.x + 1, p.y - 1)), fromSource, toSink);
-			}
-			*/
-            // Node was not joined to sink/source. 
-			// Set n-weights for non terminal neighbors
+			// Set n-weights and t-weights for non terminal neighbors
 			// and update t-weights for terminal neighbors.
+			int vtx = pxl2Vtx.at<int>(p); 
 			if (p.x > 0)
 			{
 				double w = leftW.at<double>(p);
 				int n = pxl2Vtx.at<int>(Point(p.x - 1, p.y));
-				//graph.addEdges( vtxIdx, vtxIdx-1, w, w );  //W
-				if (n >= 0)  // W-neighbor node is neither source nor sink
-					graph.addEdges(pxl2Vtx.at<int>(p), n, w, w);  //W
-				else // neighbor is terminal
-				{
-					fromSource = (n==-1 ? 0:w); // -1: n is sink
-					toSink = (n == -2 ? 0 : w); 
-					graph.addTermWeights(pxl2Vtx.at<int>(p), fromSource, toSink);
-				}
+				if (n >= 0)  // not terminal W-neighbor
+					if (vtx >= 0) // not terminal node
+						if (vtx != n)
+						   graph.addEdges(vtx, n, w, w);
+					else
+						graph.addTermWeights(n, (jfg(vtx) ? w : 0), (jbg(vtx) ? w : 0));
+				else
+					if (vtx >= 0)
+						graph.addTermWeights(vtx, (jfg(n) ? w : 0), (jbg(n) ? w : 0));
+					else
+						if (jbg(vtx) != jbg(n))
+							s2tw += w;
             }
             if( p.x>0 && p.y>0 )
             {
                 double w = upleftW.at<double>(p);
 				int n = pxl2Vtx.at<int>(Point(p.x - 1, p.y - 1));
-                //graph.addEdges( vtxIdx, vtxIdx-img.cols-1, w, w );  //NW
-				if (n >= 0) // NW-neighbor node is neither source nor sink
-					graph.addEdges(pxl2Vtx.at<int>(p), n, w, w);
-				else 
-				{
-					fromSource = (n == -1 ? 0 : w); // -1: n is sink
-					toSink = (n == -2 ? 0 : w);
-					graph.addTermWeights(pxl2Vtx.at<int>(p), fromSource, toSink);
-				}
+				if (n >= 0) // not terminal NW-neighbor
+					if (vtx >= 0) // not terminal node
+						if (vtx != n)
+						    graph.addEdges(vtx, n, w, w);
+					else
+						graph.addTermWeights(n, (jfg(vtx) ? w : 0), (jbg(vtx) ? w : 0));
+				else // neighbor is terminal
+					if (vtx >= 0)
+						graph.addTermWeights(vtx, (jfg(n) ? w : 0), (jbg(n) ? w : 0));
+					else
+						if (jbg(vtx) != jbg(n))
+							s2tw += w;
             }
             if( p.y>0 )
             {
                 double w = upW.at<double>(p);
-                //graph.addEdges( vtxIdx, vtxIdx-img.cols, w, w ); // N
-				if (pxl2Vtx.at<int>(Point(p.x, p.y - 1)) >= 0)
-					graph.addEdges(pxl2Vtx.at<int>(p), pxl2Vtx.at<int>(Point(p.x, p.y - 1)), w, w);
-				else if (pxl2Vtx.at<int>(Point(p.x, p.y - 1)) == -1)  // N-neighbor is sink
-				{
-					fromSource = 0;
-					toSink = w;
-					graph.addTermWeights(pxl2Vtx.at<int>(p), fromSource, toSink);
-				}
+				int n = pxl2Vtx.at<int>(Point(p.x, p.y - 1));
+				if (n >= 0)
+					if (vtx >= 0)
+						if (vtx != n)
+					       graph.addEdges(vtx, n, w, w);
+					else
+						graph.addTermWeights(n, (jfg(vtx) ? w : 0), (jbg(vtx) ? w : 0));
 				else
-				{
-					fromSource = w;
-					toSink = 0;
-					graph.addTermWeights(pxl2Vtx.at<int>(p), fromSource, toSink);
-				}
+					if (vtx >= 0)
+					    graph.addTermWeights(vtx, (jfg(n) ? w : 0), (jbg(n) ? w : 0));
+					else
+						if (jbg(vtx) != jbg(n))
+							s2tw += w;
             }
             if( p.x<img.cols-1 && p.y>0 )
             {
                 double w = uprightW.at<double>(p);
-                //graph.addEdges( vtxIdx, vtxIdx-img.cols+1, w, w ); // NE
-				if (pxl2Vtx.at<int>(Point(p.x + 1, p.y - 1)) >= 0)
-					graph.addEdges(pxl2Vtx.at<int>(p), pxl2Vtx.at<int>(Point(p.x+1, p.y-1)), w, w);
-				else if (pxl2Vtx.at<int>(Point(p.x + 1, p.y - 1)) == -1)  // NE-neighbor is sink
-				{
-					fromSource = 0;
-					toSink = w;
-					graph.addTermWeights(pxl2Vtx.at<int>(p), fromSource, toSink);
-				}
+				int n = pxl2Vtx.at<int>(Point(p.x + 1, p.y - 1));
+				if (n >= 0)
+					if (vtx >= 0)
+						if (vtx != n)
+					        graph.addEdges(vtx, n, w, w);
+					else
+						graph.addTermWeights(n, (jfg(vtx) ? w : 0), (jbg(vtx) ? w : 0));
 				else
-				{
-					fromSource = w;
-					toSink = 0;
-					graph.addTermWeights(pxl2Vtx.at<int>(p), fromSource, toSink);
-				}
+					if (vtx >= 0)
+					    graph.addTermWeights(vtx, (jfg(n) ? w : 0), (jbg(n) ? w : 0));
+					else
+						if (jbg(vtx) != jbg(n))
+							s2tw += w;
             }
+			
+			//double flow = graph.maxFlow();
+			//printf("count=%d ", count++);
+			//printf("Slim flow: %.2f\n", flow);
+			
         }
     }
+	//printf("s- t weight: %.2f\n", s2tw);
 }
 
 
 //  Slim version of Estimate segmentation using MaxFlow algorithm
 static void estimateSegmentation_slim( GCGraph<double>& graph, Mat& mask, Mat& ptx2Vtx )
 {
-    graph.maxFlow();
+    double flow=graph.maxFlow();
+	printf("Slim flow: %.2f\n", flow);
     Point p;
     for( p.y = 0; p.y < mask.rows; p.y++ )
     {
@@ -610,6 +702,10 @@ static void estimateSegmentation_slim( GCGraph<double>& graph, Mat& mask, Mat& p
         }
     }
 }
+
+static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, double lambda,
+	const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW,
+	GCGraph<double>& graph);
 
 // Slim version of Grabcut algorithm
 void cv::grabCut_slim( InputArray _img, InputOutputArray _mask, Rect rect,
@@ -673,11 +769,16 @@ void cv::grabCut_slim( InputArray _img, InputOutputArray _mask, Rect rect,
 
 		tStart = clock();
         constructGCGraph_slim(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph, pxl2Vtx);
-		printf("construcGCGraph: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
+		printf("construcGCGraph slim: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
+
+		GCGraph<double> graph2;
+		constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph2);
+		double flow = graph2.maxFlow();
+		printf("test flow: %.2f\n", flow);
 
 		tStart = clock();
         estimateSegmentation_slim( graph, mask, pxl2Vtx );
-		printf("estimateSegmentation: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
+		printf("estimateSegmentation slim: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
     }
 }
 // End of modification. BV
@@ -694,6 +795,7 @@ static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM,
 		edgeCount = 2 * (4 * img.cols*img.rows - 3 * (img.cols + img.rows) + 2);
 	graph.create(vtxCount, edgeCount);
 	Point p;
+	//int count = 0;
 	for (p.y = 0; p.y < img.rows; p.y++)
 	{
 		for (p.x = 0; p.x < img.cols; p.x++)
@@ -708,6 +810,7 @@ static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM,
 			{
 				fromSource = -log(bgdGMM(color));
 				toSink = -log(fgdGMM(color));
+				//printf("from source: %.2f color %d %d %d", fromSource, color[0], color[1], color[2]);
 			}
 			else if (mask.at<uchar>(p) == GC_BGD)
 			{
@@ -742,6 +845,9 @@ static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM,
 				double w = uprightW.at<double>(p);
 				graph.addEdges(vtxIdx, vtxIdx - img.cols + 1, w, w);
 			}
+			//double flow = graph.maxFlow();
+			//printf("count=%d ", count++);
+			//printf("flow: %.2f\n", flow);
 		}
 	}
 }
@@ -751,7 +857,8 @@ Estimate segmentation using MaxFlow algorithm
 */
 static void estimateSegmentation(GCGraph<double>& graph, Mat& mask)
 {
-	graph.maxFlow();
+	double flow=graph.maxFlow();
+	printf("Flow: %.2fs\n", flow);
 	Point p;
 	for (p.y = 0; p.y < mask.rows; p.y++)
 	{
