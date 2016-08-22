@@ -441,80 +441,138 @@ static void learnGMMs( const Mat& img, const Mat& mask, const Mat& compIdxs, GMM
     fgdGMM.endLearning();
 }
 
-// Init matrix sigmaW of pixel node total weight
-static void calcSumW(const Mat& img, Mat& sigmaW, const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW)
+// Init matrix sigmaW of total weight for pixels (not reduced) in original graph
+static void initSigmaW(const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, Mat& sigmaW, 
+	                       const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW, double lambda)
 {
 	Point p;
 
-	sigmaW.create(img.rows, img.cols, CV_64FC1);
+	sigmaW.create(img.rows, img.cols, CV_64FC1);  // double
 	
 	for (p.y = 0; p.y < img.rows; p.y++)
 	{
 		for (p.x = 0; p.x < img.cols; p.x++)
-		{
-			sigmaW.at<double>(p.y, p.x) = 0;
-			sigmaW.at<double>(p) += leftW.at<double>(p);
-			sigmaW.at<double>(p.y, p.x) += upleftW.at<double>(p);
-			sigmaW.at<double>(p.y, p.x) += upW.at<double>(p);
-			sigmaW.at<double>(p.y, p.x) += uprightW.at<double>(p);
+		{   
+			double s = 0;
+			//sigmaW.at<double>(p.y, p.x) = 0;
+			s += leftW.at<double>(p.y, p.x);
+			s += upleftW.at<double>(p.y, p.x);
+			s += upW.at<double>(p.y, p.x);
+			s += uprightW.at<double>(p.y, p.x);
 
 			if (p.x < img.cols-1)
-				sigmaW.at<double>(p) += leftW.at<double>(p.y, p.x+1);
+				s += leftW.at<double>(p.y, p.x+1);
 			if (p.x < img.cols - 1 && p.y < img.rows-1)
-				sigmaW.at<double>(p.y, p.x) += upleftW.at<double>(p.y+1, p.x+1);
+				s += upleftW.at<double>(p.y+1, p.x+1);
 			if (p.y < img.rows - 1)
-				sigmaW.at<double>(p.y, p.x) += upleftW.at<double>(p.y + 1, p.x );
+				s += upW.at<double>(p.y + 1, p.x );
 			if (p.x > 0 && p.y < img.rows - 1)
-				sigmaW.at<double>(p.y, p.x) += upleftW.at<double>(p.y + 1, p.x-1);
+				s += uprightW.at<double>(p.y + 1, p.x-1);
+
+
+			double fromSource, toSink;
+			Vec3b color = img.at<Vec3b>(p.y, p.x);
+
+			if (mask.at<uchar>(p.y, p.x) == GC_PR_BGD || mask.at<uchar>(p.y, p.x) == GC_PR_FGD)
+			{
+				fromSource = -log(bgdGMM(color));
+				toSink = -log(fgdGMM(color));
+				//printf("from source: %.2f color %d %d %d", fromSource, color[0], color[1], color[2]);
+			}
+			else if (mask.at<uchar>(p) == GC_BGD)
+			{
+				fromSource = 0;
+				toSink = lambda;
+			}
+			else // GC_FGD
+			{
+				fromSource = lambda;
+				toSink = 0;
+			}
+
+			sigmaW.at<double>(p.y, p.x) = s+fromSource+toSink;  
 		}
 
 	}
 }
 
-// compute sum of weights for all edges adjacent to node vtx, including
-// pending edges.
+// compute sum of weights for all edges adjacent to node vtx[i], including
+// pending (=after p) edges.
 static double slimSumW(const Mat& img, const int i, const Point p, GCGraph<double>& graph, 
 	                            const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW,
 								const Mat_<Point>& Vtx2pxl)
 {
-	double s = graph.sumW(i); // sum of weights for edges adjacent to vtx[i]
+	double s = graph.sumW(i); // sum of weights for edges adjacent to vtx[i], including source and sink
 
 	// add weights of pending edges
 	
 	Point pxl = graph.getFirstP(i);  
 	for (Point pxl = graph.getFirstP(i); pxl != Point(-1, -1); pxl = Vtx2pxl.at<Point>(p))
 	{
-		if (((pxl.y == p.y) && (pxl.x < p.x)) || ((pxl.y == p.y - 1) && (pxl.x> p.x)))  // border pixel
+		if ((pxl.x == p.x - 1) && (pxl.y == p.y-1))  // up-left neighbor pf p 
+			s += upleftW.at<double>(p);
+
+		if (((pxl.y == p.y) && (pxl.x < p.x)) || ((pxl.y == p.y - 1) && (pxl.x>=p.x)))  // border pixel
 		{
+			if (pxl.x == p.x - 1) 
+				s += leftW.at<double>(Point(pxl.x + 1, pxl.y));
+			
+			//if (pxl.y == p.y -1)
+			//	s += upW.at<double>(Point(pxl.x, pxl.y+1));
+
 			if (pxl.y < img.rows - 1)
 			{
-				s += upW.at<double>(pxl.x, pxl.y + 1);
+				s += upW.at<double>(Point(pxl.x, pxl.y + 1));  
 
-				if (pxl.x > 0)
-					s += uprightW.at<double>(pxl.x - 1, pxl.y + 1);
+				if ((pxl.x > 0) && (pxl.x != p.x))
+				//if (pxl.x > 0) 
+					s += uprightW.at<double>(Point(pxl.x - 1, pxl.y + 1));
 
 				if (pxl.x < img.cols - 1)
-					s += upleftW.at<double>(pxl.x + 1, pxl.y + 1);
-
-				if ((pxl.x == p.x - 1) && (pxl.y == p.y))
-					s += leftW.at<double>(pxl.x + 1, pxl.y);
-
+					s += upleftW.at<double>(Point(pxl.x + 1, pxl.y + 1));
 			}
 		}
 	}
 	return s;
 }
 
-static int searchJoin(Point p, const Mat& sigmaW, Mat& pxl2Vtx, const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW)
+// search for node to which pixel p can be joined
+static int searchJoin(Point p, const Mat& img, const Mat& sigmaW, Mat& pxl2Vtx, 
+	                  const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW, 
+					  GCGraph<double>& graph, const Mat_<Point>& Vtx2pxl)
 {
-
 	if (p.x > 0)
-		if (leftW.at<double>(p.x - 1, p.y) > 0.5 * sigmaW.at<double>(p) )
-			return pxl2Vtx.at<int>(p.x-1, p.y);
-	if ((p.x > 0) && (p.y>0))
-		if (upleftW.at<double>(p.x - 1, p.y-1) > 0.5 * sigmaW.at<double>(p))
-			return pxl2Vtx.at<int>(p.x - 1, p.y - 1);
-	// to be coàmpleted
+	{
+		//if (leftW.at<double>(p.y - 1, p.x) > 0.5 * sigmaW.at<double>(p) )
+		if (leftW.at<double>(p) > 0.5 * sigmaW.at<double>(p))
+			return pxl2Vtx.at<int>(p.y, p.x - 1);
+		if (leftW.at<double>(p) > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y, p.x-1), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
+			return pxl2Vtx.at<int>(p.y, p.x - 1);
+	}
+	if (p.y > 0)
+	{
+		//if (leftW.at<double>(p.y - 1, p.x) > 0.5 * sigmaW.at<double>(p) )
+		if (upW.at<double>(p) > 0.5 * sigmaW.at<double>(p))
+			return pxl2Vtx.at<int>(p.y - 1, p.x);
+		if (upW.at<double>(p) > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y-1, p.x), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
+			return pxl2Vtx.at<int>(p.y-1, p.x);
+	}
+	if ((p.y > 0) && (p.x > 0))
+	{
+		//if (upleftW.at<double>(p.y - 1, p.x-1) > 0.5 * sigmaW.at<double>(p))
+		if (upleftW.at<double>(p) > 0.5 * sigmaW.at<double>(p))
+			return pxl2Vtx.at<int>(p.y - 1, p.x - 1);
+		if (upleftW.at<double>(p) > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y - 1, p.x - 1), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
+			return pxl2Vtx.at<int>(p.y - 1, p.x - 1);//?
+	}
+	if (p.x < img.cols - 1 && p.y>0)
+	{
+		if (uprightW.at<double>(p) > 0.5 * sigmaW.at<double>(p))
+			return pxl2Vtx.at<int>(p.y - 1, p.x + 1);
+		if (uprightW.at<double>(p) > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y - 1, p.x + 1), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
+			return pxl2Vtx.at<int>(p.y - 1, p.x + 1);
+	}
+	// completed ?***********************************************************
 
 	return -1;
 }
@@ -533,12 +591,12 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
     Point p;
 	int vtxIdx;
 	double s2tw=0.0;  // source to sink weight
-	//int count = 0;
+	int count = 0;
 
 	Mat_<Point> Vtx2pxl(img.rows, img.cols); // lists of pixels joined to vertices
 	Mat_<double> sigmaW(img.rows, img.cols);
 	Vtx2pxl = Point(-1, -1);
-	calcSumW(img, sigmaW, leftW, upleftW, upW, uprightW);
+	initSigmaW(img, mask, bgdGMM, fgdGMM, sigmaW, leftW, upleftW, upW, uprightW, lambda);
 
     for( p.y = 0; p.y < img.rows; p.y++ )
     {
@@ -551,11 +609,12 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
             if( mask.at<uchar>(p) == GC_PR_BGD || mask.at<uchar>(p) == GC_PR_FGD )
             {
 				// add node
-				int i = searchJoin(p, sigmaW, pxl2Vtx, leftW, upleftW, upW, uprightW);
+				int i = searchJoin(p, img, sigmaW, pxl2Vtx, leftW, upleftW, upW, uprightW, graph, Vtx2pxl);
+				//i = -1; // BLOCK JOIN REMOVE*************************************************************************
 				if (i != -1)
 				{
-					printf("joinable vtx found\n");
-					vtxIdx = i;
+					count++;
+					vtxIdx = i;  // node to join
 					pxl2Vtx.at<int>(p) = vtxIdx;
 					Vtx2pxl.at<Point>(p) = graph.getFirstP(vtxIdx);
 					graph.setFirstP(vtxIdx, p);
@@ -596,11 +655,14 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 			if (p.x > 0)
 			{
 				double w = leftW.at<double>(p);
-				int n = pxl2Vtx.at<int>(Point(p.x - 1, p.y));
+				int n = pxl2Vtx.at<int>(Point(p.x - 1, p.y)); // equiv to at<int>(p.y, p.x-1)
 				if (n >= 0)  // not terminal W-neighbor
 					if (vtx >= 0) // not terminal node
+					{// braces added thursday
 						if (vtx != n)
-						   graph.addEdges(vtx, n, w, w);
+							//graph.addEdges(vtx, n, w, w);
+							graph.addWeight(vtx, n, w);
+					}
 					else
 						graph.addTermWeights(n, (jfg(vtx) ? w : 0), (jbg(vtx) ? w : 0));
 				else
@@ -616,8 +678,11 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 				int n = pxl2Vtx.at<int>(Point(p.x - 1, p.y - 1));
 				if (n >= 0) // not terminal NW-neighbor
 					if (vtx >= 0) // not terminal node
+					{//
 						if (vtx != n)
-						    graph.addEdges(vtx, n, w, w);
+							//graph.addEdges(vtx, n, w, w);
+							graph.addWeight(vtx, n, w);
+					}//
 					else
 						graph.addTermWeights(n, (jfg(vtx) ? w : 0), (jbg(vtx) ? w : 0));
 				else // neighbor is terminal
@@ -633,8 +698,11 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 				int n = pxl2Vtx.at<int>(Point(p.x, p.y - 1));
 				if (n >= 0)
 					if (vtx >= 0)
+					{//
 						if (vtx != n)
-					       graph.addEdges(vtx, n, w, w);
+							//graph.addEdges(vtx, n, w, w);
+							graph.addWeight(vtx, n, w);
+					}//
 					else
 						graph.addTermWeights(n, (jfg(vtx) ? w : 0), (jbg(vtx) ? w : 0));
 				else
@@ -650,8 +718,11 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 				int n = pxl2Vtx.at<int>(Point(p.x + 1, p.y - 1));
 				if (n >= 0)
 					if (vtx >= 0)
+					{ //
 						if (vtx != n)
-					        graph.addEdges(vtx, n, w, w);
+							//graph.addEdges(vtx, n, w, w);
+							graph.addWeight(vtx, n, w);
+					}//
 					else
 						graph.addTermWeights(n, (jfg(vtx) ? w : 0), (jbg(vtx) ? w : 0));
 				else
@@ -669,6 +740,10 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
         }
     }
 	//printf("s- t weight: %.2f\n", s2tw);
+	printf("joinable vtx found %d\n", count);
+
+	int simple = graph.searchSimpleEdges();
+	printf("simple edges %d\n", simple);
 }
 
 
