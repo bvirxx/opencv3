@@ -447,7 +447,7 @@ static void initSigmaW(const Mat& img, const Mat& mask, const GMM& bgdGMM, const
 {
 	Point p;
 
-	sigmaW.create(img.rows, img.cols, CV_64FC1);  // double
+	//sigmaW.create(img.rows, img.cols, CV_64FC1);  // double done by constructGCGrapg_slim
 	
 	for (p.y = 0; p.y < img.rows; p.y++)
 	{
@@ -536,45 +536,56 @@ static double slimSumW(const Mat& img, const int i, const Point p, GCGraph<doubl
 	return s;
 }
 
-// search for node to which pixel p can be joined
+#define BV_NO_VTX_FOUND -10
+
+// search for non terminal node  to which pixel p can be joined
 static int searchJoin(Point p, const Mat& img, const Mat& sigmaW, Mat& pxl2Vtx, 
 	                  const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW, 
 					  GCGraph<double>& graph, const Mat_<Point>& Vtx2pxl)
 {
 	if (p.x > 0)
 	{
-		//if (leftW.at<double>(p.y - 1, p.x) > 0.5 * sigmaW.at<double>(p) )
-		if (leftW.at<double>(p) > 0.5 * sigmaW.at<double>(p))
-			return pxl2Vtx.at<int>(p.y, p.x - 1);
-		if (leftW.at<double>(p) > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y, p.x-1), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
-			return pxl2Vtx.at<int>(p.y, p.x - 1);
+		if (pxl2Vtx.at<int>(p.y, p.x - 1) >= 0)
+		{
+			if (leftW.at<double>(p) > 0.5 * sigmaW.at<double>(p))
+				return pxl2Vtx.at<int>(p.y, p.x - 1);
+			if (leftW.at<double>(p) > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y, p.x - 1), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
+				return pxl2Vtx.at<int>(p.y, p.x - 1);
+		}
 	}
 	if (p.y > 0)
 	{
-		//if (leftW.at<double>(p.y - 1, p.x) > 0.5 * sigmaW.at<double>(p) )
-		if (upW.at<double>(p) > 0.5 * sigmaW.at<double>(p))
-			return pxl2Vtx.at<int>(p.y - 1, p.x);
-		if (upW.at<double>(p) > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y-1, p.x), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
-			return pxl2Vtx.at<int>(p.y-1, p.x);
+		if (pxl2Vtx.at<int>(p.y - 1, p.x) >= 0)
+		{
+			if (upW.at<double>(p) > 0.5 * sigmaW.at<double>(p))
+				return pxl2Vtx.at<int>(p.y - 1, p.x);
+			if (upW.at<double>(p) > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y - 1, p.x), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
+				return pxl2Vtx.at<int>(p.y - 1, p.x);
+		}
 	}
 	if ((p.y > 0) && (p.x > 0))
 	{
-		//if (upleftW.at<double>(p.y - 1, p.x-1) > 0.5 * sigmaW.at<double>(p))
-		if (upleftW.at<double>(p) > 0.5 * sigmaW.at<double>(p))
-			return pxl2Vtx.at<int>(p.y - 1, p.x - 1);
-		if (upleftW.at<double>(p) > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y - 1, p.x - 1), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
-			return pxl2Vtx.at<int>(p.y - 1, p.x - 1);//?
+		if (pxl2Vtx.at<int>(p.y - 1, p.x - 1) >= 0)
+		{
+			if (upleftW.at<double>(p) > 0.5 * sigmaW.at<double>(p))
+				return pxl2Vtx.at<int>(p.y - 1, p.x - 1);
+			if (upleftW.at<double>(p) > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y - 1, p.x - 1), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
+				return pxl2Vtx.at<int>(p.y - 1, p.x - 1);//?
+		}
 	}
 	if (p.x < img.cols - 1 && p.y>0)
 	{
-		if (uprightW.at<double>(p) > 0.5 * sigmaW.at<double>(p))
-			return pxl2Vtx.at<int>(p.y - 1, p.x + 1);
-		if (uprightW.at<double>(p) > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y - 1, p.x + 1), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
-			return pxl2Vtx.at<int>(p.y - 1, p.x + 1);
+		if (pxl2Vtx.at<int>(p.y - 1, p.x + 1) >= 0)
+		{
+			if (uprightW.at<double>(p) > 0.5 * sigmaW.at<double>(p))
+				return pxl2Vtx.at<int>(p.y - 1, p.x + 1);
+			if (uprightW.at<double>(p) > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y - 1, p.x + 1), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
+				return pxl2Vtx.at<int>(p.y - 1, p.x + 1);
+		}
 	}
 	// completed ?***********************************************************
 
-	return -1;
+	return BV_NO_VTX_FOUND;
 }
 
 /*#ifdef SLIM*/
@@ -594,7 +605,7 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 	int count = 0;
 
 	Mat_<Point> Vtx2pxl(img.rows, img.cols); // lists of pixels joined to vertices
-	Mat_<double> sigmaW(img.rows, img.cols);
+	Mat_<double> sigmaW(img.rows, img.cols, CV_64FC1);  //double
 	Vtx2pxl = Point(-1, -1);
 	initSigmaW(img, mask, bgdGMM, fgdGMM, sigmaW, leftW, upleftW, upW, uprightW, lambda);
 
@@ -611,7 +622,7 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 				// add node
 				int i = searchJoin(p, img, sigmaW, pxl2Vtx, leftW, upleftW, upW, uprightW, graph, Vtx2pxl);
 				//i = -1; // BLOCK JOIN REMOVE*************************************************************************
-				if (i != -1)
+				if (i != BV_NO_VTX_FOUND)
 				{
 					count++;
 					vtxIdx = i;  // node to join
@@ -744,6 +755,7 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 
 	int simple = graph.searchSimpleEdges();
 	printf("simple edges %d\n", simple);
+	printf("s2tw %.2f\n", s2tw);
 }
 
 
