@@ -176,8 +176,13 @@ template <class TWeight>
 cv::Point  GCGraph<TWeight>::edge(const int i, const int j)
 {
 	int ind1 = -1, ind2 = -1;
+
+	if (edges.size() == 0)
+		return cv::Point(ind1, ind2);
+
 	Edge e;
 	int p;
+
 	for (p = vtcs[i].first, e = edges[p]; p > 0; p= e.next, e=edges[p])
 	{
 		if (e.dst == j)
