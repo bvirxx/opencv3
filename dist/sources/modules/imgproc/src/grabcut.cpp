@@ -771,12 +771,12 @@ static void estimateSegmentation_slim( GCGraph<double>& graph, Mat& mask, Mat& p
         {
             if( mask.at<uchar>(p) == GC_PR_BGD || mask.at<uchar>(p) == GC_PR_FGD )
             {
-				if (ptx2Vtx.at<int>(p) == -1)
+				if (ptx2Vtx.at<int>(p) == GC_JNT_BGD ) //-1
 				{
 					mask.at<uchar>(p) = GC_PR_BGD;
 					continue;
 				}
-				if (ptx2Vtx.at<int>(p) == -2)
+				if (ptx2Vtx.at<int>(p) == GC_JNT_FGD )//-2
 				{
 					mask.at<uchar>(p) = GC_PR_BGD;
 					continue;
