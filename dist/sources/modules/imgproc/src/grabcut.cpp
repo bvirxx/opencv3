@@ -679,7 +679,7 @@ static double slimSumW(const Mat& img, const int i, const Point p, GCGraph<doubl
 
 // search for first  node  to which pixel p can be joined
 // return node index (negative GC_JNT_BGD or GC_JNT_FGD for terminal node) or BV_NO_VTX_FOUND
-static int searchJoin(Point p, const Mat& img, const Mat& sigmaW, Mat& pxl2Vtx, 
+static inline int searchJoin(Point p, const Mat& img, const Mat& sigmaW, Mat& pxl2Vtx, 
 	                  const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW, 
 					  GCGraph<double>& graph, const Mat_<Point>& Vtx2pxl, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM,
 					  const double lambda, const std::vector<Point>& sinkToPxl, const std::vector<Point>& sourceToPxl)
@@ -725,16 +725,17 @@ static int searchJoin(Point p, const Mat& img, const Mat& sigmaW, Mat& pxl2Vtx,
 			s[i] += getSourceW(p, img, mask, bgdGMM, fgdGMM, lambda);
 	}
 
-	// left neighbor
-	if (p.x > 0)
+	// search for first joinable neighbor
+	for (int i = 0; i < 4; i++)
 	{
-		int cn = pxl2Vtx.at<int>(p.y, p.x - 1);
-
-		if (s[0] > 0.5 * sigmaW.at<double>(p))
-			return cn; 
+		int cn = nghbrVtx[i];
+		if (cn == -10)
+			continue;
+		if (s[i] > 0.5 * sigmaW.at<double>(p))
+			 return cn;
 		if (cn >= 0)
 		{
-			if (s[0] > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y, p.x - 1), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
+			if (s[i] > 0.5 * slimSumW(img, cn, p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
 				return cn;
 		}
 		else // neighbor is joined to terminal
@@ -749,6 +750,10 @@ static int searchJoin(Point p, const Mat& img, const Mat& sigmaW, Mat& pxl2Vtx,
 					return cn;
 			}
 	}
+
+	return BV_NO_VTX_FOUND;
+}
+	
 	// up neighbor
 	/*
 	if (p.y > 0)
@@ -785,8 +790,8 @@ static int searchJoin(Point p, const Mat& img, const Mat& sigmaW, Mat& pxl2Vtx,
 	}
 	// completed ?***********************************************************
 	*/
-	return BV_NO_VTX_FOUND;
-}
+	//return BV_NO_VTX_FOUND;
+//}
 
 // optimized version of ConstructGCGraph. 
 // Author BV
