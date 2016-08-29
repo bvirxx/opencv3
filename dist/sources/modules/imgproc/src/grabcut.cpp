@@ -478,7 +478,7 @@ static inline double getSourceW(Point p, const Mat& img, const Mat& mask, const 
 }
 
 //sum of weights of pending edges for pxl (joined or not joined) in current graph(pixel p not simplified)
-static double pendingSumW(Point p, Point pxl, const Mat& img, const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW)
+static inline double pendingSumW(const Point p, const Point pxl, const Mat& img, const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW)
 {
 	double s = 0;
 
@@ -512,11 +512,10 @@ static double pendingSumW(Point p, Point pxl, const Mat& img, const Mat& leftW, 
 }
 
 // sum of weights of pending edges for sink in current graph ( pixel p not simplified)
-static double getSinkPendingSumW(Point p, const Mat& img, const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW, const std::vector<Point>& sinkToPxl)
+static inline double getSinkPendingSumW(const Point p, const Mat& img, const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW, const std::vector<Point>& sinkToPxl)
 {
 	double s = 0;
 
-	//for (int i = sinkToPxl.size() - 1; i >= 0; i--)
 	for (size_t i = sinkToPxl.size() - 1; i >= 0; i--)
 	{
 		Point pxl = sinkToPxl[i];
@@ -529,34 +528,10 @@ static double getSinkPendingSumW(Point p, const Mat& img, const Mat& leftW, cons
 	}
 
 	return s;
-
-		//if (((pxl.y == p.y) && (pxl.x < p.x)) || ((pxl.y == p.y - 1) && (pxl.x >= p.x)))  // border pxl
-		//{
-		//	if (pxl.y < img.rows - 1)
-		//	{
-		//		s += upW.at<double>(pxl.y + 1, pxl.x);
-
-		//		if (pxl.x > 0)
-
-		//			s += uprightW.at<double>(pxl.y + 1, pxl.x - 1);
-
-		//		if (pxl.x < img.cols - 1)
-
-		//			s += upleftW.at<double>(pxl.y + 1, pxl.x + 1);
-		//		
-		//	}
-		//}
-
-		//if ((pxl.y == p.y - 1) && (pxl.x == p.x - 1))
-
-		//	s += upleftW.at<double>(p);
-	//}
-
-	//return s;
 }
 
 // sum of weights of pending edges for source in current graph (pixel p not simplified)
-static double getSourcePendingSumW(Point p, const Mat& img, const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW, const std::vector<Point>& sourceToPxl)
+static inline double getSourcePendingSumW(const Point p, const Mat& img, const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW, const std::vector<Point>& sourceToPxl)
 {
 	double s = 0;
 
@@ -725,14 +700,28 @@ static inline int searchJoin(Point p, const Mat& img, const Mat& sigmaW, Mat& px
 			s[i] += getSourceW(p, img, mask, bgdGMM, fgdGMM, lambda);
 	}
 
+	if (getSinkW(p, img, mask, bgdGMM, fgdGMM, lambda) > 0.5 * sigmaW.at<double>(p))
+		return GC_JNT_BGD;
+	//if (getSinkW(p, img, mask, bgdGMM, fgdGMM, lambda) > 0.5 * (graph.sink_sigmaW + getSinkPendingSumW(p, img, leftW, upleftW, upW, uprightW, sinkToPxl)))
+	//	return GC_JNT_BGD; unsafe as sink sum of weights should include terminal weights for all graph, and useless !!!
+	if (getSourceW(p, img, mask, bgdGMM, fgdGMM, lambda) > 0.5 * sigmaW.at<double>(p))
+		return GC_JNT_FGD;
+	//if (getSourceW(p, img, mask, bgdGMM, fgdGMM, lambda) > 0.5 * (graph.source_sigmaW + getSourcePendingSumW(p, img, leftW, upleftW, upW, uprightW, sinkToPxl)))
+	//	return GC_JNT_FGD; unsafe and useless
+
+
 	// search for first joinable neighbor
 	for (int i = 0; i < 4; i++)
 	{
 		int cn = nghbrVtx[i];
 		if (cn == -10)
 			continue;
+
+		// first condition for simple edge
 		if (s[i] > 0.5 * sigmaW.at<double>(p))
 			 return cn;
+
+		// dual condition
 		if (cn >= 0)
 		{
 			if (s[i] > 0.5 * slimSumW(img, cn, p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
@@ -741,16 +730,15 @@ static inline int searchJoin(Point p, const Mat& img, const Mat& sigmaW, Mat& px
 		else // neighbor is joined to terminal
 			if (cn == GC_JNT_BGD)
 			{
-				if (getSinkW(p, img, mask, bgdGMM, fgdGMM, lambda) > 0.5*graph.sink_sigmaW + 0.5*getSinkPendingSumW(p, img, leftW, upleftW, upW, uprightW, sinkToPxl))
+				if (getSinkW(p, img, mask, bgdGMM, fgdGMM, lambda) > 0.5*(graph.sink_sigmaW + getSinkPendingSumW(p, img, leftW, upleftW, upW, uprightW, sinkToPxl)))
 					return cn;
 			}
 			else
 			{
-				if (getSourceW(p, img, mask, bgdGMM, fgdGMM, lambda) > 0.5*graph.source_sigmaW + 0.5*getSourcePendingSumW(p, img, leftW, upleftW, upW, uprightW, sourceToPxl))
+				if (getSourceW(p, img, mask, bgdGMM, fgdGMM, lambda) > 0.5*(graph.source_sigmaW + getSourcePendingSumW(p, img, leftW, upleftW, upW, uprightW, sourceToPxl)))
 					return cn;
 			}
 	}
-
 	return BV_NO_VTX_FOUND;
 }
 	
