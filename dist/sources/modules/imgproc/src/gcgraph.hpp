@@ -45,6 +45,7 @@
 template <class TWeight> class GCGraph
 {
 public:
+	TWeight sink_sigmaW, source_sigmaW; // holds sum of terminal weights for all nodes
     GCGraph();
     GCGraph( unsigned int vtxCount, unsigned int edgeCount );
     ~GCGraph();
@@ -94,7 +95,10 @@ template <class TWeight>
 GCGraph<TWeight>::GCGraph()
 {
     flow = 0;
+	sink_sigmaW = 0;
+	source_sigmaW = 0;
 }
+
 template <class TWeight>
 GCGraph<TWeight>::GCGraph( unsigned int vtxCount, unsigned int edgeCount )
 {
@@ -307,6 +311,9 @@ void GCGraph<TWeight>::addWeight(const int i, const int j, const TWeight w)
 template <class TWeight>
 int GCGraph<TWeight>::searchSimpleEdges()
 {
+	if (edges.size() == 0)
+		return 0;
+
 	int count = 0;
 
 	for (int i = 2; i < edges.size() - 1; i += 2)
@@ -316,6 +323,17 @@ int GCGraph<TWeight>::searchSimpleEdges()
 		if ((w > 0.5 * sumW(edges[i].dst)) || (w > 0.5 * sumW(edges[i+ 1].dst)))
 			count++;
 	}
+
+	for (int i = 0; i < vtcs.size(); i++)
+	{
+		double w = vtcs[i].sourceW;
+		if ((w > 0.5*source_sigmaW) || (w > 0.5*sumW(i)))
+			count++;
+
+		w = vtcs[i].sourceW - vtcs[i].weight;
+		if ((w > 0.5*sink_sigmaW) || (w > 0.5*sumW(i)))
+			count++;
+	}
 	return count;
 }
 
@@ -323,6 +341,9 @@ template <class TWeight>
 void GCGraph<TWeight>::addTermWeights( int i, TWeight sourceW, TWeight sinkW )
 {
     CV_Assert( i>=0 && i<(int)vtcs.size() );
+
+	sink_sigmaW += sinkW;
+	source_sigmaW += sourceW;
 
     TWeight dw = vtcs[i].weight;
     if( dw > 0 )
