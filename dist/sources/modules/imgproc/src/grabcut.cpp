@@ -728,25 +728,25 @@ static int searchJoin(Point p, const Mat& img, const Mat& sigmaW, Mat& pxl2Vtx,
 	// left neighbor
 	if (p.x > 0)
 	{
-		//if (leftW.at<double>(p) > 0.5 * sigmaW.at<double>(p))
+		int cn = pxl2Vtx.at<int>(p.y, p.x - 1);
+
 		if (s[0] > 0.5 * sigmaW.at<double>(p))
-			return pxl2Vtx.at<int>(p.y, p.x - 1); 
-		if (pxl2Vtx.at<int>(p.y, p.x - 1) >= 0)
+			return cn; 
+		if (cn >= 0)
 		{
-			//if (leftW.at<double>(p) > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y, p.x - 1), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
 			if (s[0] > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y, p.x - 1), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
-				return pxl2Vtx.at<int>(p.y, p.x - 1);
+				return cn;
 		}
 		else // neighbor is joined to terminal
-			if (pxl2Vtx.at<int>(p.y, p.x - 1) == GC_JNT_BGD)
+			if (cn == GC_JNT_BGD)
 			{
 				if (getSinkW(p, img, mask, bgdGMM, fgdGMM, lambda) > 0.5*graph.sink_sigmaW + 0.5*getSinkPendingSumW(p, img, leftW, upleftW, upW, uprightW, sinkToPxl))
-					return GC_JNT_BGD;
+					return cn;
 			}
 			else
 			{
 				if (getSourceW(p, img, mask, bgdGMM, fgdGMM, lambda) > 0.5*graph.source_sigmaW + 0.5*getSourcePendingSumW(p, img, leftW, upleftW, upW, uprightW, sourceToPxl))
-					return GC_JNT_FGD;
+					return cn;
 			}
 	}
 	// up neighbor
