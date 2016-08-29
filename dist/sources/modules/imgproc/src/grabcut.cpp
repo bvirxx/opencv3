@@ -444,7 +444,7 @@ static void learnGMMs( const Mat& img, const Mat& mask, const Mat& compIdxs, GMM
 }
 
 // Sink (BGD) weight for pixel p in the non reduced (virtual) graph
-static double getSinkW(Point p, const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, double lambda)
+static inline double getSinkW(Point p, const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, double lambda)
 {
 	double toSink = 0;
 	Vec3b color = img.at<Vec3b>(p.y, p.x);
@@ -455,24 +455,24 @@ static double getSinkW(Point p, const Mat& img, const Mat& mask, const GMM& bgdG
 
 	else if (mask.at<uchar>(p.y, p.x) == GC_PR_BGD || mask.at<uchar>(p.y, p.x) == GC_PR_FGD)
 
-		toSink = -log(fgdGMM(color));
+		toSink = -log(fgdGMM(color)); // bien fgd (see original constructGCGraph)
 
 	return toSink;
 }
 
 // Source (FGD) weight for pixel p in the non reduced (virtual) graph
-static double getSourceW(Point p, const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, double lambda)
+static inline double getSourceW(Point p, const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, double lambda)
 {
 	double fromSource = 0;
 	Vec3b color = img.at<Vec3b>(p.y, p.x);
 
-	if (mask.at<uchar>(p) == GC_FGD) // GC_FGD
+	if (mask.at<uchar>(p) == GC_FGD) 
 
 		fromSource = lambda;
 
 	else if (mask.at<uchar>(p.y, p.x) == GC_PR_BGD || mask.at<uchar>(p.y, p.x) == GC_PR_FGD)
 
-		fromSource = -log(bgdGMM(color));
+		fromSource = -log(bgdGMM(color));  // bien bgd
 	
 	return fromSource;
 }
@@ -683,17 +683,61 @@ static int searchJoin(Point p, const Mat& img, const Mat& sigmaW, Mat& pxl2Vtx,
 	                  const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW, 
 					  GCGraph<double>& graph, const Mat_<Point>& Vtx2pxl, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM,
 					  const double lambda, const std::vector<Point>& sinkToPxl, const std::vector<Point>& sourceToPxl)
-{   // left neighbor
+{   
+	int nghbrVtx[4];  // indices of neighbor vertices (order left, upleft, up, upright)
+	double w[4];
+	double s[4];
+	for (int i = 0; i < 4; i++)
+	{
+		nghbrVtx[i] = -10; // no neighbor
+		w[i] = 0;
+		s[i] = 0;
+	}
+
 	if (p.x > 0)
 	{
-		if (leftW.at<double>(p) > 0.5 * sigmaW.at<double>(p))
-			return pxl2Vtx.at<int>(p.y, p.x - 1);
+		nghbrVtx[0] = pxl2Vtx.at<int>(p.y, p.x - 1);
+		w[0] = leftW.at<double>(p);
+	}
+	if ((p.x > 0) && (p.y > 0))
+	{
+		nghbrVtx[1] = pxl2Vtx.at<int>(p.y - 1, p.x - 1);
+		w[1] = upleftW.at<double>(p);
+	}
+	if (p.y > 0)
+	{
+		nghbrVtx[2] = pxl2Vtx.at<int>(p.y - 1, p.x);
+		w[2] = upW.at<double>(p);
+	}
+	if ((p.y > 0) && (p.x < img.cols - 1))
+	{
+		nghbrVtx[3] = pxl2Vtx.at<int>(p.y - 1, p.x + 1);
+		w[3] = uprightW.at<double>(p);
+	}
+	for (int i = 0; i < 4; i++)
+	{
+		for (int j = 0; j < 4; j++)
+			if (nghbrVtx[i] == nghbrVtx[j])
+				s[i] += w[j];
+		if (nghbrVtx[i] == GC_JNT_BGD)
+			s[i] += getSinkW(p, img, mask, bgdGMM, fgdGMM, lambda);
+		if (nghbrVtx[i] == GC_JNT_FGD)
+			s[i] += getSourceW(p, img, mask, bgdGMM, fgdGMM, lambda);
+	}
+
+	// left neighbor
+	if (p.x > 0)
+	{
+		//if (leftW.at<double>(p) > 0.5 * sigmaW.at<double>(p))
+		if (s[0] > 0.5 * sigmaW.at<double>(p))
+			return pxl2Vtx.at<int>(p.y, p.x - 1); 
 		if (pxl2Vtx.at<int>(p.y, p.x - 1) >= 0)
 		{
-			if (leftW.at<double>(p) > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y, p.x - 1), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
+			//if (leftW.at<double>(p) > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y, p.x - 1), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
+			if (s[0] > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y, p.x - 1), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
 				return pxl2Vtx.at<int>(p.y, p.x - 1);
 		}
-		else // neighbor is terminal
+		else // neighbor is joined to terminal
 			if (pxl2Vtx.at<int>(p.y, p.x - 1) == GC_JNT_BGD)
 			{
 				if (getSinkW(p, img, mask, bgdGMM, fgdGMM, lambda) > 0.5*graph.sink_sigmaW + 0.5*getSinkPendingSumW(p, img, leftW, upleftW, upW, uprightW, sinkToPxl))
@@ -706,13 +750,14 @@ static int searchJoin(Point p, const Mat& img, const Mat& sigmaW, Mat& pxl2Vtx,
 			}
 	}
 	// up neighbor
+	/*
 	if (p.y > 0)
 	{
 		if (pxl2Vtx.at<int>(p.y - 1, p.x) >= 0)
 		{
-			if (upW.at<double>(p) > 0.5 * sigmaW.at<double>(p))
+			if (s[2] > 0.5 * sigmaW.at<double>(p))
 				return pxl2Vtx.at<int>(p.y - 1, p.x);
-			if (upW.at<double>(p) > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y - 1, p.x), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
+			if (s[2] > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y - 1, p.x), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
 				return pxl2Vtx.at<int>(p.y - 1, p.x);
 		}
 	}
@@ -721,9 +766,9 @@ static int searchJoin(Point p, const Mat& img, const Mat& sigmaW, Mat& pxl2Vtx,
 	{
 		if (pxl2Vtx.at<int>(p.y - 1, p.x - 1) >= 0)
 		{
-			if (upleftW.at<double>(p) > 0.5 * sigmaW.at<double>(p))
+			if (s[1] > 0.5 * sigmaW.at<double>(p))
 				return pxl2Vtx.at<int>(p.y - 1, p.x - 1);
-			if (upleftW.at<double>(p) > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y - 1, p.x - 1), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
+			if (s[1] > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y - 1, p.x - 1), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
 				return pxl2Vtx.at<int>(p.y - 1, p.x - 1);//?
 		}
 	}
@@ -732,14 +777,14 @@ static int searchJoin(Point p, const Mat& img, const Mat& sigmaW, Mat& pxl2Vtx,
 	{
 		if (pxl2Vtx.at<int>(p.y - 1, p.x + 1) >= 0)
 		{
-			if (uprightW.at<double>(p) > 0.5 * sigmaW.at<double>(p))
+			if (s[3] > 0.5 * sigmaW.at<double>(p))
 				return pxl2Vtx.at<int>(p.y - 1, p.x + 1);
-			if (uprightW.at<double>(p) > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y - 1, p.x + 1), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
+			if (s[3] > 0.5 * slimSumW(img, pxl2Vtx.at<int>(p.y - 1, p.x + 1), p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
 				return pxl2Vtx.at<int>(p.y - 1, p.x + 1);
 		}
 	}
 	// completed ?***********************************************************
-
+	*/
 	return BV_NO_VTX_FOUND;
 }
 
@@ -774,11 +819,11 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
             // set t-weights
             double fromSource, toSink;
 
-			// add node
+			// add node and set its t-weights
             if( mask.at<uchar>(p) == GC_PR_BGD || mask.at<uchar>(p) == GC_PR_FGD )
             {
 				int i = searchJoin(p, img, sigmaW, pxl2Vtx, leftW, upleftW, upW, uprightW, graph, Vtx2pxl, mask, bgdGMM, fgdGMM, lambda, sinkToPxl, sourceToPxl);
-				//i = -1; // BLOCK JOIN REMOVE*************************************************************************
+				//i = BV_NO_VTX_FOUND; // BLOCK JOIN REMOVE*************************************************************************
 				if (i != BV_NO_VTX_FOUND)
 				{
 					count++;
@@ -812,6 +857,10 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 					toSink = -log(fgdGMM(color));
 					graph.addTermWeights(vtxIdx, fromSource, toSink);
 				}
+				else if (vtxIdx == GC_JNT_BGD)
+				    s2tw += getSourceW(p, img, mask, bgdGMM, fgdGMM, lambda);  // -log(bgdGMM(color))??
+				else
+					s2tw += getSinkW(p, img, mask, bgdGMM, fgdGMM, lambda);
 				//printf("slim from source: %.2f color %d %d %d", fromSource, color[0], color[1], color[2]);
             }
             else if( mask.at<uchar>(p) == GC_BGD )
@@ -841,9 +890,9 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 			{
 				double w = leftW.at<double>(p);
 				int n = pxl2Vtx.at<int>(Point(p.x - 1, p.y)); // equiv to at<int>(p.y, p.x-1)
-				if (n >= 0)  // not terminal W-neighbor
-					if (vtx >= 0) // not terminal node
-					{// braces added thursday
+				if (n >= 0)  // no terminal W-neighbor
+					if (vtx >= 0) // no terminal node
+					{
 						if (vtx != n)
 							//graph.addEdges(vtx, n, w, w);
 							graph.addWeight(vtx, n, w);
