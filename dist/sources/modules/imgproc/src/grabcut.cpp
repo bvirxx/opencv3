@@ -666,7 +666,7 @@ static inline int searchJoin(const Point p, const Mat& img, const Mat& sigmaW, c
 	{
 		nghbrVtx[i] = -10; // no neighbor
 		w[i] = 0;
-		s[i] = 0;
+		//s[i] = 0;
 	}
 
 	if (p.x > 0)
@@ -690,13 +690,18 @@ static inline int searchJoin(const Point p, const Mat& img, const Mat& sigmaW, c
 		w[3] = uprightW.at<double>(p);
 	}
 
+	// calculate weight of edge (p, neigbor) 
 	double ws = getSinkW(p, img, mask, bgdGMM, fgdGMM, lambda);
 	double wt = getSourceW(p, img, mask, bgdGMM, fgdGMM, lambda);
 	for (int i = 0; i < 4; i++)
 	{
-		for (int j = 0; j < 4; j++)
+		s[i] = w[i];
+		for (int j = 0; j < i; j++)
 			if (nghbrVtx[i] == nghbrVtx[j])
+			{
 				s[i] += w[j];
+				s[j] == w[i];
+			}
 		if (nghbrVtx[i] == GC_JNT_BGD)
 			s[i] += ws; // getSinkW(p, img, mask, bgdGMM, fgdGMM, lambda);
 		if (nghbrVtx[i] == GC_JNT_FGD)
