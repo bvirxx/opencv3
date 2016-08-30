@@ -287,11 +287,12 @@ TWeight GCGraph<TWeight>::sumW(const int i)
 	TWeight s = 0;
 	for (int p=vtcs[i].first; p > 0; )
 	{
-		Edge e = edges[p];
+		Edge& e = edges[p];
 		s += e.weight;
 		p=e.next;
 	}
-	return s + getSourceW(i) + getSinkW(i);
+	//return s + getSourceW(i) + getSinkW(i);
+	return s + 2.0*vtcs[i].sourceW - vtcs[i].weight;
 }
 
 template <class TWeight>
@@ -327,11 +328,13 @@ int GCGraph<TWeight>::searchSimpleEdges()
 	for (int i = 0; i < vtcs.size(); i++)
 	{
 		double w = vtcs[i].sourceW;
-		if ((w > 0.5*source_sigmaW) || (w > 0.5*sumW(i)))
+		double s = 0.5*sumW(i);
+
+		if ((w > 0.5*source_sigmaW) || (w > s))
 			count++;
 
 		w = vtcs[i].sourceW - vtcs[i].weight;
-		if ((w > 0.5*sink_sigmaW) || (w > 0.5*sumW(i)))
+		if ((w > 0.5*sink_sigmaW) || (w > s))
 			count++;
 	}
 	return count;
