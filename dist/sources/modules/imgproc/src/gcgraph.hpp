@@ -64,7 +64,8 @@ public:
 	void removeEdge(const int i, const int j);
 	void joinNodes(const int i, const int j);
 	void addWeight(const int i, const int j, const TWeight w); // increase weight of edge (i,j) by w. Edge is created if needed.
-	int searchSimpleEdges();
+	cv::Point searchSimpleEdges(int startE, int startV, bool first);
+	int reduce();
 private:
     class Vtx
     {
@@ -195,7 +196,7 @@ cv::Point  GCGraph<TWeight>::edge(const int i, const int j)
 			break;
 		}
 	}
-	for (p = vtcs[j].first, e = edges[p]; p > 0; p = e.next, e=edges[p])
+	for (p = vtcs[j].first, e = edges[p]; p > 0; p = e.next, e=edges[p])  // TODO optimize; called by constructGCGraph_slim
 	{
 		if (e.dst == i)
 		{
@@ -203,6 +204,9 @@ cv::Point  GCGraph<TWeight>::edge(const int i, const int j)
 			break;
 		}
 	}
+	if (abs(ind1 - ind2) > 1)
+
+		printf("edge:invalid");
 
 	CV_Assert(abs(ind1 - ind2) <= 1);
 
@@ -212,47 +216,40 @@ cv::Point  GCGraph<TWeight>::edge(const int i, const int j)
 template <class TWeight>
 void GCGraph<TWeight>::removeEdge(const int i, const int j)
 {
-	for (int p = vtcs[i].first, e = edges[p]; p > 0; p=e.next)
+	for (int pred = -100, p = vtcs[i].first; p > 0;)
 	{
-		if (e.next == 0)
-			if (e.dst == j)
-			{
-				vtcs[i].first = 0;
-				e.dst = -1;
-				e.next = 0;
-				e.weight = 0;
-				break;
-			}
-			else if (edges[e.next].dst == j)
-			{
-				e.next = edges[e.next].next;  // remove edge at index e.next
-				edges[e.next].dst = -1;
-				edges[e.next].next = 0;
-				edges[e.next].weight = 0;
-
-				break;
-			}
+		Edge& e = edges[p];
+		if (e.dst == j)
+		{
+			if (pred >=0)
+	            edges[pred].next = e.next;
+			else
+				vtcs[i].first = e.next;
+			e.dst = -1;
+			e.next = 0;
+			e.weight = 0;
+			break;
+		}
+		pred = p;
+		p = e.next;
 	}
 
-	for (int p = vtcs[j].first, e = edges[p]; p > 0; p = e.next)
+	for (int pred = -100, p = vtcs[j].first; p > 0;)
 	{
-		if (e.next == 0)
-			if (e.dst == i)
-			{
-				vtcs[j].first = 0;
-				e.dst = -1;
-				e.next = 0;
-				e.weight = 0;
-				break;
-			}
-			else if (edges[e.next].dst == i)
-			{
-				e.next = edges[e.next].next; // remove edge at index e.next
-				edges[e.next].dst = -1;
-				edges[e.next].next = 0;
-				edges[e.next].weight = 0;
-				break;
-			}
+		Edge& e = edges[p];
+		if (e.dst == i)
+		{
+			if (pred >= 0)
+				edges[pred].next = e.next;
+			else
+				vtcs[j].first = e.next;
+			e.dst = -1;
+			e.next = 0;
+			e.weight = 0;
+			break;
+		}
+		pred = p;
+		p = e.next;
 	}
 }
 
@@ -262,20 +259,27 @@ void  GCGraph<TWeight>::joinNodes(const int i, const int j)
 
 	removeEdge(i, j);
 
-	for (int p = vtcs[i].first, e = edges[p]; p > 0; p = e.next)
+	for (int p = vtcs[i].first;  p > 0; )
 	{
+		Edge& e = edges[p];
 		cv::Point tmp = edge(j, e.dst);
-		if (tmp == (-1, -1))
+		if (tmp == cv::Point(-1, -1))
 			addEdges(j, e.dst, e.weight, e.weight);  
 		else
 		{
 			edges[tmp.x].weight += e.weight;
 			edges[tmp.y].weight += e.weight;
 		}
+		p = e.next;
 		removeEdge(i, e.dst);
+		//p = e.next;
 	}
 	addTermWeights(j, getSourceW(i), getSinkW(i));
 	addTermWeights(i, -getSourceW(i), -getSinkW(i));
+
+	if (vtcs[i].first != 0)
+
+		printf("join: invalid");
 
 	CV_Assert( vtcs[i].first == 0 );
 }
@@ -283,7 +287,7 @@ void  GCGraph<TWeight>::joinNodes(const int i, const int j)
 // sum of weights for all edges adjacent to vtcs[i], including source and sink
 template <class TWeight>
 TWeight GCGraph<TWeight>::sumW(const int i)
-{
+{                                                           // TODO function called very very often : replace by a field of vertex ??
 	TWeight s = 0;
 	for (int p=vtcs[i].first; p > 0; )
 	{
@@ -310,32 +314,161 @@ void GCGraph<TWeight>::addWeight(const int i, const int j, const TWeight w)
 }
 
 template <class TWeight>
-int GCGraph<TWeight>::searchSimpleEdges()
+cv::Point GCGraph<TWeight>::searchSimpleEdges(int startE, int startV,bool first)
 {
 	if (edges.size() == 0)
 		return 0;
 
 	int count = 0;
 
-	for (int i = 2; i < edges.size() - 1; i += 2)
+	startE = max(2, startE - startE % 2);
+
+	for (int i = startE; i < edges.size() - 1; i += 2)
 	{
 		double w = edges[i].weight;
 
-		if ((w > 0.5 * sumW(edges[i].dst)) || (w > 0.5 * sumW(edges[i+ 1].dst)))
+		if (w == 0)
+
+			continue;  // possibly removed edge. (dst is  -1) 
+
+		if ((w > 0.5 * sumW(edges[i].dst)) || (w > 0.5 * sumW(edges[i + 1].dst)))
+		{
 			count++;
+			if (first)
+				return cv::Point(0,i);
+		}
 	}
 
-	for (int i = 0; i < vtcs.size(); i++)
-	{
+	for (int i = startV; i < vtcs.size(); i++)
+	{   
+		if (vtcs[i].first == 0)  // no edges : removed node
+			continue;
 		double w = vtcs[i].sourceW;
 		double s = 0.5*sumW(i);
 
 		if ((w > 0.5*source_sigmaW) || (w > s))
+		{
 			count++;
+			if (first)
+				return cv::Point (GC_JNT_FGD,i);
+		}
 
 		w = vtcs[i].sourceW - vtcs[i].weight;
 		if ((w > 0.5*sink_sigmaW) || (w > s))
+		{
 			count++;
+			if (first)
+				return cv::Point(GC_JNT_BGD,i);
+		}
+	}
+
+	//from the beginning
+	startE = min(startE, (int)edges.size() - 1);
+
+	for (int i = 2; i < startE; i += 2)
+	{
+		double w = edges[i].weight;
+
+		if (w == 0)
+
+			continue;  // possibly removed edge. (dst is  -1) 
+
+		if ((w > 0.5 * sumW(edges[i].dst)) || (w > 0.5 * sumW(edges[i + 1].dst)))
+		{
+			count++;
+			if (first)
+				return cv::Point(0, i);
+		}
+	}
+
+	// from the beginning
+	startV = min(startV, (int)vtcs.size());
+
+	for (int i = 0; i < startV; i++)
+	{
+		if (vtcs[i].first == 0)  // no edges : removed node
+			continue;
+		double w = vtcs[i].sourceW;
+		double s = 0.5*sumW(i);
+
+		if ((w > 0.5*source_sigmaW) || (w > s))
+		{
+			count++;
+			if (first)
+				return cv::Point(GC_JNT_FGD, i);
+		}
+
+		w = vtcs[i].sourceW - vtcs[i].weight;
+		if ((w > 0.5*sink_sigmaW) || (w > s))
+		{
+			count++;
+			if (first)
+				return cv::Point(GC_JNT_BGD, i);
+		}
+	}
+	if (!first)
+		printf("found %d simple edges\n",count);
+
+	return cv::Point(-10,-10); // BV_NO_VTX_FOUND;
+}
+
+template <class TWeight>
+int GCGraph<TWeight>::reduce()
+{
+	int count = 0;
+	int startE = 2;
+	int startV = 0;
+	for (;;)
+	{
+		Point ind = searchSimpleEdges(startE, startV,true);
+		if (ind.x >= 0)
+		{
+			joinNodes(edges[ind.y].dst, edges[ind.y + 1].dst);
+			count++;
+			startE = ind.y+2;
+		}
+		else if (ind.x == GC_JNT_FGD)
+		{
+			Vtx v = vtcs[ind.y];
+			for (int p = v.first; p > 0;)
+			{
+				Edge& e = edges[p];
+				TWeight w = e.weight;
+				addTermWeights(e.dst, w, 0);
+				p = e.next;//
+				removeEdge(ind.y, e.dst);
+			}
+			source_sigmaW -= v.sourceW;
+			v.first = 0;
+			v.weight = 0;             // TODO encapsulate in a function jointoSource
+			v.sourceW = 0;
+			//v.firstP=??
+			count++;
+			startV = ind.y + 1;
+			startE = edges.size();
+		}
+		else if (ind.x == GC_JNT_BGD)
+		{
+			Vtx v = vtcs[ind.y];
+			for (int p = v.first; p > 0;)
+			{
+				Edge& e = edges[p];
+				TWeight w = e.weight;
+				addTermWeights(e.dst, w, 0);
+				p = e.next;//
+				removeEdge(ind.y, e.dst);
+			}
+			sink_sigmaW -= v.sourceW - v.weight;
+			v.first = 0;
+			v.weight = 0;
+			v.sourceW = 0;              // TODO encapsulate in a function jointoSink
+			//v.firstP=??
+			count++;
+			startV = ind.y + 1;
+			startE = edges.size();
+		}
+		else
+			break;
 	}
 	return count;
 }
@@ -343,7 +476,10 @@ int GCGraph<TWeight>::searchSimpleEdges()
 template <class TWeight>
 void GCGraph<TWeight>::addTermWeights( int i, TWeight sourceW, TWeight sinkW )
 {
-    CV_Assert( i>=0 && i<(int)vtcs.size() );
+	if (!(i >= 0 && i < (int)vtcs.size()))
+		printf("addTermWeights: invalid");
+
+	CV_Assert( i>=0 && i<(int)vtcs.size() );
 
 	sink_sigmaW += sinkW;
 	source_sigmaW += sourceW;
