@@ -1047,6 +1047,8 @@ void cv::grabCut_slim( InputArray _img, InputOutputArray _mask, Rect rect,
 		int c = graph.reduce();
 		printf("simple edges reduced %d\n", c);
 
+		graph.searchSimpleEdges(0, 0, false);  // TODO : remove
+
 		GCGraph<double> graph2;
 		constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph2);
 		double flow = graph2.maxFlow();
@@ -1055,8 +1057,10 @@ void cv::grabCut_slim( InputArray _img, InputOutputArray _mask, Rect rect,
 		tStart = clock();
         estimateSegmentation_slim( graph, mask, pxl2Vtx );
 		printf("estimateSegmentation slim: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
-		
-		graph.searchSimpleEdges(0,0, false);  // TODO : to be removed
+
+		//graph.searchSimpleEdges(0, 0, false);  // caution : MaxFlow modifies weights, so false result
+
+		graph2.searchSimpleEdges(0, 0, false);  // TODO : remove
 	}
 }
 // End of modification. BV
