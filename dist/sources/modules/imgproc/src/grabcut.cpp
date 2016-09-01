@@ -700,7 +700,7 @@ static inline int searchJoin(const Point p, const Mat& img, const Mat& sigmaW, c
 			if (nghbrVtx[i] == nghbrVtx[j])
 			{
 				s[i] += w[j];
-				s[j] == w[i];
+				s[j] += w[i];
 			}
 		if (nghbrVtx[i] == GC_JNT_BGD)
 			s[i] += ws; // getSinkW(p, img, mask, bgdGMM, fgdGMM, lambda);
@@ -859,7 +859,7 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 					{
 						if (vtx != n)
 							//graph.addEdges(vtx, n, w, w);
-							graph.addWeight(vtx, n, w);
+							graph.addWeight(vtx, n, w);   // TODO call edge(i,j) : too high overhead ???
 					}
 					else
 						graph.addTermWeights(n, (jfg(vtx) ? w : 0), (jbg(vtx) ? w : 0));
@@ -879,7 +879,7 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 					{//
 						if (vtx != n)
 							//graph.addEdges(vtx, n, w, w);
-							graph.addWeight(vtx, n, w);
+							graph.addWeight(vtx, n, w);  // TODO call edge(i,j) : too high overhead ???
 					}//
 					else
 						graph.addTermWeights(n, (jfg(vtx) ? w : 0), (jbg(vtx) ? w : 0));
@@ -899,7 +899,7 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 					{//
 						if (vtx != n)
 							//graph.addEdges(vtx, n, w, w);
-							graph.addWeight(vtx, n, w);
+							graph.addWeight(vtx, n, w);  // TODO call edge(i, j) : too high overhead ? ? ?
 					}//
 					else
 						graph.addTermWeights(n, (jfg(vtx) ? w : 0), (jbg(vtx) ? w : 0));
@@ -919,7 +919,7 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 					{ //
 						if (vtx != n)
 							//graph.addEdges(vtx, n, w, w);
-							graph.addWeight(vtx, n, w);
+							graph.addWeight(vtx, n, w);  // TODO call edge(i, j) : too high overhead ? ? ?
 					}//
 					else
 						graph.addTermWeights(n, (jfg(vtx) ? w : 0), (jbg(vtx) ? w : 0));
@@ -940,8 +940,6 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 	//printf("s- t weight: %.2f\n", s2tw);
 	printf("joinable vtx found %d\n", count);
 
-	int simple = graph.searchSimpleEdges();  // TODO : to be removed
-	printf("simple edges %d\n", simple);
 	printf("s2tw %.2f\n", s2tw);
 }
 
@@ -1046,6 +1044,9 @@ void cv::grabCut_slim( InputArray _img, InputOutputArray _mask, Rect rect,
         constructGCGraph_slim(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph, pxl2Vtx);
 		printf("construcGCGraph slim: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
 
+		int c = graph.reduce();
+		printf("simple edges reduced %d\n", c);
+
 		GCGraph<double> graph2;
 		constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph2);
 		double flow = graph2.maxFlow();
@@ -1054,7 +1055,9 @@ void cv::grabCut_slim( InputArray _img, InputOutputArray _mask, Rect rect,
 		tStart = clock();
         estimateSegmentation_slim( graph, mask, pxl2Vtx );
 		printf("estimateSegmentation slim: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
-    }
+		
+		graph.searchSimpleEdges(0,0, false);  // TODO : to be removed
+	}
 }
 // End of modification. BV
 
