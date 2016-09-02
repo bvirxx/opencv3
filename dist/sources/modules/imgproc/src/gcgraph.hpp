@@ -63,6 +63,8 @@ public:
 	cv::Point edge(const int i, const int j);  // indices of edges (i,j) and (j,i), (-1,-1) if not found
 	void removeEdge(const int i, const int j);
 	void joinNodes(const int i, const int j);
+	void joinSink(const int i);
+	void joinSource(const int i);
 	void addWeight(const int i, const int j, const TWeight w); // increase weight of edge (i,j) by w. Edge is created if needed.
 	cv::Point searchSimpleEdges(int startE, int startV, bool first);
 	int reduce();
@@ -261,7 +263,7 @@ void  GCGraph<TWeight>::joinNodes(const int i, const int j)
 
 	for (int p = vtcs[i].first;  p > 0; )
 	{
-		Edge& e = edges[p];
+		Edge& e = edges[p];   // TODO replace lines below by addWeight(j, e.dst, e.weight)
 		cv::Point tmp = edge(j, e.dst);
 		if (tmp == cv::Point(-1, -1))
 			addEdges(j, e.dst, e.weight, e.weight);  
@@ -282,6 +284,54 @@ void  GCGraph<TWeight>::joinNodes(const int i, const int j)
 		printf("join: invalid");
 
 	CV_Assert( vtcs[i].first == 0 );
+}
+
+template <class TWeight>
+void  GCGraph<TWeight>::joinSink(const int i)
+{
+	Vtx v = vtcs[i];
+	//connect all adjacent n-edges to sink
+	for (int p = v.first; p > 0;)
+	{
+		Edge& e = edges[p];
+		TWeight w = e.weight;
+		addTermWeights(e.dst, 0, w);
+		p = e.next;
+		removeEdge(i, e.dst);
+	}
+	// remove t-edge to sink
+	sink_sigmaW -= v.sourceW - v.weight;
+	// update source to sink t-edge
+	//s2tw += v.sourceW; // TODO uncomment when s2tw is a made a member field of GCGraph
+	// remove node
+	v.first = 0;
+	v.weight = 0;
+	v.sourceW = 0;   
+	//v.firstP=??
+}
+
+template <class TWeight>
+void  GCGraph<TWeight>::joinSource(const int i)
+{
+	Vtx v = vtcs[i];
+	//connect all adjacent n-edges to source
+	for (int p = v.first; p > 0;)
+	{
+		Edge& e = edges[p];
+		TWeight w = e.weight;
+		addTermWeights(e.dst, w, 0);
+		p = e.next;
+		removeEdge(i, e.dst);
+	}
+	// remove t-edge to source
+	source_sigmaW -= v.sourceW;
+	// update sink to source t-edge
+	//s2tw += v.sourceW - v.weight; // TODO uncomment when s2tw is a made a member field of GCGraph
+	// remove node
+	v.first = 0;
+	v.weight = 0;             // TODO encapsulate in a function jointoSource
+	v.sourceW = 0;
+	//v.firstP=??
 }
 
 // sum of weights for all edges adjacent to vtcs[i], including source and sink
@@ -429,40 +479,42 @@ int GCGraph<TWeight>::reduce()
 		}
 		else if (ind.x == GC_JNT_FGD)
 		{
-			Vtx v = vtcs[ind.y];
-			for (int p = v.first; p > 0;)
-			{
-				Edge& e = edges[p];
-				TWeight w = e.weight;
-				addTermWeights(e.dst, w, 0);
-				p = e.next;//
-				removeEdge(ind.y, e.dst);
-			}
-			source_sigmaW -= v.sourceW;
-			v.first = 0;
-			v.weight = 0;             // TODO encapsulate in a function jointoSource
-			v.sourceW = 0;
-			//v.firstP=??
+			joinSource(ind.y);
+			//Vtx v = vtcs[ind.y];
+			//for (int p = v.first; p > 0;)
+			//{
+			//	Edge& e = edges[p];
+			//	TWeight w = e.weight;
+			//	addTermWeights(e.dst, w, 0);
+			//	p = e.next;//
+			//	removeEdge(ind.y, e.dst);
+			//}
+			//source_sigmaW -= v.sourceW;
+			//v.first = 0;
+			//v.weight = 0;             // TODO encapsulate in a function joinSource
+			//v.sourceW = 0;
+			////v.firstP=??
 			count++;
 			startV = ind.y + 1;
 			startE = edges.size();
 		}
 		else if (ind.x == GC_JNT_BGD)
 		{
-			Vtx v = vtcs[ind.y];
-			for (int p = v.first; p > 0;)
-			{
-				Edge& e = edges[p];
-				TWeight w = e.weight;
-				addTermWeights(e.dst, w, 0);
-				p = e.next;//
-				removeEdge(ind.y, e.dst);
-			}
-			sink_sigmaW -= v.sourceW - v.weight;
-			v.first = 0;
-			v.weight = 0;
-			v.sourceW = 0;              // TODO encapsulate in a function jointoSink
-			//v.firstP=??
+			joinSink(ind.y);
+			//Vtx v = vtcs[ind.y];
+			//for (int p = v.first; p > 0;)
+			//{
+			//	Edge& e = edges[p];
+			//	TWeight w = e.weight;
+			//	addTermWeights(e.dst, 0, w); //addTermWeights(e.dst, w, 0);
+			//	p = e.next;//
+			//	removeEdge(ind.y, e.dst);
+			//}
+			//sink_sigmaW -= v.sourceW - v.weight;
+			//v.first = 0;
+			//v.weight = 0;
+			//v.sourceW = 0;              // TODO encapsulate in a function jointoSink
+			////v.firstP=??
 			count++;
 			startV = ind.y + 1;
 			startE = edges.size();
