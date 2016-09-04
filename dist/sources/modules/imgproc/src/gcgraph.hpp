@@ -140,8 +140,6 @@ void GCGraph<TWeight>::addEdges( int i, int j, TWeight w, TWeight revw )
 
     if( !edges.size() )
         edges.resize( 2 );
-	if (abs(sumW(i) - vtcs[i].sumW)>0.00001)
-		printf("sumW bad value %.2f", vtcs[i].sumW);
 
     Edge fromI, toI;
     fromI.dst = j;
@@ -151,17 +149,12 @@ void GCGraph<TWeight>::addEdges( int i, int j, TWeight w, TWeight revw )
     edges.push_back( fromI );
 	vtcs[i].sumW += w;
 
-	if (abs(sumW(i) - vtcs[i].sumW)>0.00001)
-		printf("sumW bad value %.2f", vtcs[i].sumW);
-
     toI.dst = i;
     toI.next = vtcs[j].first;
     toI.weight = revw;
     vtcs[j].first = (int)edges.size();
     edges.push_back( toI );
 	vtcs[j].sumW += revw;
-	if (abs(sumW(i) - vtcs[i].sumW)>0.00001)
-		printf("sumW bad value %.2f", vtcs[i].sumW);
 }
 
 template <class TWeight>
@@ -216,9 +209,6 @@ cv::Point  GCGraph<TWeight>::edge(const int i, const int j)
 			break;
 		}
 	}
-	if (abs(ind1 - ind2) > 1)
-
-		printf("edge:invalid");
 
 	CV_Assert(abs(ind1 - ind2) <= 1);
 
@@ -294,10 +284,6 @@ void  GCGraph<TWeight>::joinNodes(const int i, const int j)
 	addTermWeights(j, getSourceW(i), getSinkW(i));
 	addTermWeights(i, -getSourceW(i), -getSinkW(i));
 
-	if (vtcs[i].first != 0)
-
-		printf("join: invalid");
-
 	CV_Assert( vtcs[i].first == 0 );
 }
 
@@ -355,6 +341,8 @@ void  GCGraph<TWeight>::joinSource(const int i)
 template <class TWeight>
 TWeight GCGraph<TWeight>::sumW(const int i)
 {                                                           // TODO function called very very often : replace by a field of vertex ??
+	return vtcs[i].sumW;
+
 	TWeight s = 0;
 	for (int p=vtcs[i].first; p > 0; )
 	{
@@ -375,9 +363,6 @@ void GCGraph<TWeight>::addWeight(const int i, const int j, const TWeight w)
 {
 	Point a = edge(i, j);
 
-	if (abs(sumW(i) - vtcs[i].sumW)>0.00001)
-		printf("sumW bad value %.2f", vtcs[i].sumW);
-
 	if ( a == Point(-1, -1))
 		addEdges(i, j, w, w);
 	else
@@ -387,8 +372,6 @@ void GCGraph<TWeight>::addWeight(const int i, const int j, const TWeight w)
 		vtcs[i].sumW += w;
 		vtcs[j].sumW += w;
 	}	
-	if (abs(sumW(i) - vtcs[i].sumW)>0.00001)
-		printf("sumW bad value %.2f", vtcs[i].sumW);
 }
 
 template <class TWeight>
@@ -409,7 +392,9 @@ cv::Point GCGraph<TWeight>::searchSimpleEdges(int startE, int startV,bool first)
 
 			continue;  // possibly removed edge. (dst is  -1) 
 
-		if ((w > 0.5 * sumW(edges[i].dst)) || (w > 0.5 * sumW(edges[i + 1].dst)))
+		//if ((w > 0.5 * sumW(edges[i].dst)) || (w > 0.5 * sumW(edges[i + 1].dst)))
+		int d1 = edges[i].dst, d2=edges[i+1].dst;
+		if ((w > 0.5 * vtcs[d1].sumW) || (w > 0.5 * vtcs[d2].sumW))
 		{
 			count++;
 			if (first)
@@ -422,7 +407,8 @@ cv::Point GCGraph<TWeight>::searchSimpleEdges(int startE, int startV,bool first)
 		if (vtcs[i].first == 0)  // no edges : removed node
 			continue;
 		double w = vtcs[i].sourceW;
-		double s = 0.5*sumW(i);
+		//double s = 0.5*sumW(i);
+		double s = 0.5*vtcs[i].sumW;
 
 		if ((w > 0.5*source_sigmaW) || (w > s))
 		{
@@ -451,7 +437,10 @@ cv::Point GCGraph<TWeight>::searchSimpleEdges(int startE, int startV,bool first)
 
 			continue;  // possibly removed edge. (dst is  -1) 
 
-		if ((w > 0.5 * sumW(edges[i].dst)) || (w > 0.5 * sumW(edges[i + 1].dst)))
+		//if ((w > 0.5 * sumW(edges[i].dst)) || (w > 0.5 * sumW(edges[i + 1].dst)))
+		
+		int d1 = edges[i].dst, d2 = edges[i + 1].dst;
+		if ((w > 0.5 * vtcs[d1].sumW) || (w > 0.5 * vtcs[d2].sumW))
 		{
 			count++;
 			if (first)
@@ -467,7 +456,8 @@ cv::Point GCGraph<TWeight>::searchSimpleEdges(int startE, int startV,bool first)
 		if (vtcs[i].first == 0)  // no edges : removed node
 			continue;
 		double w = vtcs[i].sourceW;
-		double s = 0.5*sumW(i);
+		//double s = 0.5*sumW(i);
+		double s = 0.5*vtcs[i].sumW;
 
 		if ((w > 0.5*source_sigmaW) || (w > s))
 		{
@@ -556,13 +546,7 @@ int GCGraph<TWeight>::reduce()
 template <class TWeight>
 void GCGraph<TWeight>::addTermWeights( int i, TWeight sourceW, TWeight sinkW )
 {
-	if (!(i >= 0 && i < (int)vtcs.size()))
-		printf("addTermWeights: invalid");
-
 	CV_Assert( i>=0 && i<(int)vtcs.size() );
-
-	if (abs(sumW(i) - vtcs[i].sumW)>0.00001)
-		printf("sumW bad value %.2f", vtcs[i].sumW);
 
 	sink_sigmaW += sinkW;
 	source_sigmaW += sourceW;
@@ -577,9 +561,7 @@ void GCGraph<TWeight>::addTermWeights( int i, TWeight sourceW, TWeight sinkW )
         sinkW -= dw;
     flow += (sourceW < sinkW) ? sourceW : sinkW;
     vtcs[i].weight = sourceW - sinkW;  // don't modify
-	//vtcs[i].sourceW += sourceW;  // TODO verify place ??? or = sourceW
-	if (abs(sumW(i) - vtcs[i].sumW)>0.00001)
-		printf("sumW bad value %.2f", vtcs[i].sumW);
+	//vtcs[i].sourceW += sourceW;  // Wrong place
 }
 
 template <class TWeight>
