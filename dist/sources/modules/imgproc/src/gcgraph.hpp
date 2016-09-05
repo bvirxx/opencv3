@@ -183,7 +183,7 @@ TWeight  GCGraph<TWeight>::getSinkW(const int i)
 	return vtcs[i].sourceW - vtcs[i].weight;
 }
 
-// search for edge joining 2 vertices
+// search for edges joining 2 vertices
 template <class TWeight>
 cv::Point  GCGraph<TWeight>::edge(const int i, const int j)
 {
@@ -192,17 +192,18 @@ cv::Point  GCGraph<TWeight>::edge(const int i, const int j)
 	if (edges.size() == 0)
 		return cv::Point(ind1, ind2);
 
-	Edge e;  // dummy init.
 	int p;
 
-	for (p = vtcs[i].first, e = edges[p]; p > 0; p= e.next, e=edges[p])
-	{
+	for (p = vtcs[i].first; p > 0; )
+	{    
+		Edge& e = edges[p];
 		if (e.dst == j)
 		{
 			ind1 = p;
-			ind2 = ((p&0x01 == 0) ? p + 1 : p - 1);
+			ind2 = ((p&0x01 == 0) ? p + 1 : p - 1);  // index for reverse edge
 			break;
 		}
+		p = e.next;
 	}
 	//for (p = vtcs[j].first, e = edges[p]; p > 0; p = e.next, e=edges[p])  // TODO optimize; called by constructGCGraph_slim
 	//{
