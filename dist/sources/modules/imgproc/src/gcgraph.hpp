@@ -45,7 +45,8 @@
 template <class TWeight> class GCGraph
 {
 public:
-	TWeight sink_sigmaW, source_sigmaW; // holds sum of terminal weights for all nodes
+	TWeight sink_sigmaW, source_sigmaW; // sums of terminal weights for all nodes. Note source to sink weight is not added.
+	TWeight stotW; // source to sink weight
     GCGraph();
     GCGraph( unsigned int vtxCount, unsigned int edgeCount );
     ~GCGraph();
@@ -101,6 +102,7 @@ GCGraph<TWeight>::GCGraph()
     flow = 0;
 	sink_sigmaW = 0;
 	source_sigmaW = 0;
+	stotW = 0;
 }
 
 template <class TWeight>
@@ -190,7 +192,7 @@ cv::Point  GCGraph<TWeight>::edge(const int i, const int j)
 	if (edges.size() == 0)
 		return cv::Point(ind1, ind2);
 
-	Edge e;
+	Edge e;  // dummy init.
 	int p;
 
 	for (p = vtcs[i].first, e = edges[p]; p > 0; p= e.next, e=edges[p])
@@ -198,19 +200,20 @@ cv::Point  GCGraph<TWeight>::edge(const int i, const int j)
 		if (e.dst == j)
 		{
 			ind1 = p;
+			ind2 = ((p&0x01 == 0) ? p + 1 : p - 1);
 			break;
 		}
 	}
-	for (p = vtcs[j].first, e = edges[p]; p > 0; p = e.next, e=edges[p])  // TODO optimize; called by constructGCGraph_slim
-	{
-		if (e.dst == i)
-		{
-			ind2 = p;
-			break;
-		}
-	}
+	//for (p = vtcs[j].first, e = edges[p]; p > 0; p = e.next, e=edges[p])  // TODO optimize; called by constructGCGraph_slim
+	//{
+	//	if (e.dst == i)
+	//	{
+	//		ind2 = p;
+	//		break;
+	//	}
+	//}
 
-	CV_Assert(abs(ind1 - ind2) <= 1);
+	//CV_Assert(abs(ind1 - ind2) <= 1);
 
 	return cv::Point(ind1, ind2);
 }
@@ -339,7 +342,7 @@ void  GCGraph<TWeight>::joinSource(const int i)
 
 // sum of weights for all edges adjacent to vtcs[i], including source and sink
 template <class TWeight>
-TWeight GCGraph<TWeight>::sumW(const int i)
+inline TWeight GCGraph<TWeight>::sumW(const int i)
 {                                                           // TODO function called very very often : replace by a field of vertex ??
 	return vtcs[i].sumW;
 
