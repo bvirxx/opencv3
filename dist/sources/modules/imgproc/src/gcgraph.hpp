@@ -62,7 +62,7 @@ public:
 	TWeight getSourceW(const int i);
 	TWeight getSinkW(const int i);
 	TWeight sumW( const int i );
-	cv::Point edge(const int i, const int j);  // indices of edges (i,j) and (j,i), (-1,-1) if not found
+	int edge(const int i, const int j);  // index of edge (i,j), NOEDGE if not found. Use REVERSE(i) for reverse edge.
 	// interface for graph reduction
 	void removeEdge(const int i, const int j);
 	void joinNodes(const int i, const int j);
@@ -159,6 +159,9 @@ void GCGraph<TWeight>::addEdges( int i, int j, TWeight w, TWeight revw )
 	vtcs[j].sumW += revw;
 }
 
+# define NOEDGE -1;
+#define REVERSE( p ) (( (( p )&0x01) == 0) ? ( p ) + 1 :  ( p ) - 1);  // index for reverse edge
+
 template <class TWeight>
 cv::Point GCGraph<TWeight>::getFirstP(const int i)
 {
@@ -185,38 +188,20 @@ TWeight  GCGraph<TWeight>::getSinkW(const int i)
 
 // search for edges joining 2 vertices
 template <class TWeight>
-cv::Point  GCGraph<TWeight>::edge(const int i, const int j)
+int GCGraph<TWeight>::edge(const int i, const int j)
 {
-	int ind1 = -1, ind2 = -1;
-
 	if (edges.size() == 0)
-		return cv::Point(ind1, ind2);
+		return NOEDGE;
 
-	int p;
-
-	for (p = vtcs[i].first; p > 0; )
+	for (int p = vtcs[i].first; p > 0;)
 	{    
 		Edge& e = edges[p];
 		if (e.dst == j)
-		{
-			ind1 = p;
-			ind2 = ((p&0x01 == 0) ? p + 1 : p - 1);  // index for reverse edge
-			break;
-		}
+			return p;
 		p = e.next;
 	}
-	//for (p = vtcs[j].first, e = edges[p]; p > 0; p = e.next, e=edges[p])  // TODO optimize; called by constructGCGraph_slim
-	//{
-	//	if (e.dst == i)
-	//	{
-	//		ind2 = p;
-	//		break;
-	//	}
-	//}
 
-	//CV_Assert(abs(ind1 - ind2) <= 1);
-
-	return cv::Point(ind1, ind2);
+	return NOEDGE;
 }
 
 template <class TWeight>
@@ -365,14 +350,15 @@ inline TWeight GCGraph<TWeight>::sumW(const int i)
 template <class TWeight>
 void GCGraph<TWeight>::addWeight(const int i, const int j, const TWeight w)
 {
-	Point a = edge(i, j);
+	int a = edge(i, j);
 
-	if ( a == Point(-1, -1))
+	if ( a == -1)
 		addEdges(i, j, w, w);
 	else
 	{
-		edges[a.x].weight += w;
-		edges[a.y].weight += w;
+		int b = REVERSE(a);
+		edges[a].weight += w;
+		edges[b].weight += w;
 		vtcs[i].sumW += w;
 		vtcs[j].sumW += w;
 	}	
