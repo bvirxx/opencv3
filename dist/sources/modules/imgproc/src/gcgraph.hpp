@@ -52,23 +52,25 @@ public:
     ~GCGraph();
     void create( unsigned int vtxCount, unsigned int edgeCount );
     int addVtx();
+	int addVtx(int r);
     void addEdges( int i, int j, TWeight w, TWeight revw );
-	void addWeight(const int i, const int j, const TWeight w); // increase weight of edge (i,j) by w. Edge is created if needed.
+	void addWeight(const int i, const int j, const TWeight w); // increase weight of edge(i,j) by w. Edge is created if needed.
     void addTermWeights( int i, TWeight sourceW, TWeight sinkW );
     TWeight maxFlow();
-    bool inSourceSegment( int i );
+	TWeight maxFlow(int r, double * result_ptr);
+    inline bool inSourceSegment( int i );
 	cv::Point getFirstP(const int i);
 	void setFirstP(const int i, const cv::Point p);
 	TWeight getSourceW(const int i);
 	TWeight getSinkW(const int i);
-	TWeight sumW( const int i );
-	int edge(const int i, const int j);  // index of edge (i,j), NOEDGE if not found. Use REVERSE(i) for reverse edge.
+	TWeight sumW( const int i );  // TODO not used; verify and remove
+	inline int edge(const int i, const int j);  // index of edge (i,j), NOEDGE if not found. Use REVERSE(i) for reverse edge.
 	// interface for graph reduction
 	void removeEdge(const int i, const int j);
 	void joinNodes(const int i, const int j);
 	void joinSink(const int i);
 	void joinSource(const int i);
-	cv::Point searchSimpleEdges(int startE, int startV, bool first);
+	cv::Point searchSimpleEdges(int startE, int startV, const bool first);
 	int reduce();
 private:
     class Vtx
@@ -82,6 +84,7 @@ private:
         TWeight weight, sourceW, sumW;  // weight=sourceW-sink; sumW=sum of weights for all adjacent edges, including t-links
         uchar t;
 		cv::Point firstP; // list of pixels joined to node
+		int region;
     };
     class Edge
     {
@@ -127,9 +130,20 @@ int GCGraph<TWeight>::addVtx()
 {
     Vtx v;
     memset( &v, 0, sizeof(Vtx));
-    vtcs.push_back(v);
 	v.firstP = cv::Point(-1, -1); // init to empty list
+    vtcs.push_back(v);
     return (int)vtcs.size() - 1;
+}
+
+template <class TWeight>
+int GCGraph<TWeight>::addVtx(int r)
+{
+	Vtx v;
+	memset(&v, 0, sizeof(Vtx));
+	v.firstP = cv::Point(-1, -1); // init to empty list
+	v.region = r;
+	vtcs.push_back(v);
+	return (int)vtcs.size() - 1;
 }
 
 template <class TWeight>
@@ -188,7 +202,7 @@ TWeight  GCGraph<TWeight>::getSinkW(const int i)
 
 // search for edges joining 2 vertices
 template <class TWeight>
-int GCGraph<TWeight>::edge(const int i, const int j)
+inline int GCGraph<TWeight>::edge(const int i, const int j)
 {
 	if (edges.size() == 0)
 		return NOEDGE;
@@ -200,14 +214,13 @@ int GCGraph<TWeight>::edge(const int i, const int j)
 			return p;
 		p = e.next;
 	}
-
 	return NOEDGE;
 }
 
 template <class TWeight>
 void GCGraph<TWeight>::removeEdge(const int i, const int j)
 {
-	for (int pred = -100, p = vtcs[i].first; p > 0;)
+	for (int pred = -100, p = vtcs[i].first; p > 0;) //TODO use edge(i,j)
 	{
 		Edge& e = edges[p];
 		if (e.dst == j)
@@ -256,7 +269,7 @@ void  GCGraph<TWeight>::joinNodes(const int i, const int j)
 	{
 		Edge& e = edges[p];   // TODO replace lines below by addWeight(j, e.dst, e.weight)
 
-		addWeight(j, e.dst, e.weight);
+		addWeight(j, e.dst, e.weight);  // TODO optimize
 
 		/*cv::Point tmp = edge(j, e.dst);
 		if (tmp == cv::Point(-1, -1))
@@ -285,9 +298,9 @@ void  GCGraph<TWeight>::joinSink(const int i)
 	{
 		Edge& e = edges[p];
 		TWeight w = e.weight;
-		addTermWeights(e.dst, 0, w);
+		addTermWeights(e.dst, 0, w);  // TODO optimize
 		p = e.next;
-		removeEdge(i, e.dst);
+		removeEdge(i, e.dst);  // TODO optmize
 	}
 	// remove t-link to sink
 	sink_sigmaW -= v.sourceW - v.weight;
@@ -310,9 +323,9 @@ void  GCGraph<TWeight>::joinSource(const int i)
 	{
 		Edge& e = edges[p];
 		TWeight w = e.weight;
-		addTermWeights(e.dst, w, 0);
+		addTermWeights(e.dst, w, 0);  // TODO optimize
 		p = e.next;
-		removeEdge(i, e.dst);
+		removeEdge(i, e.dst);  // TODO optimize
 	}
 	// remove t-link to source
 	source_sigmaW -= v.sourceW;
@@ -329,22 +342,22 @@ void  GCGraph<TWeight>::joinSource(const int i)
 // sum of weights for all edges adjacent to vtcs[i], including source and sink
 template <class TWeight>
 inline TWeight GCGraph<TWeight>::sumW(const int i)
-{                                                           // TODO function called very very often : replace by a field of vertex ??
+{                                                           // TODO not used; remove
 	return vtcs[i].sumW;
 
-	TWeight s = 0;
-	for (int p=vtcs[i].first; p > 0; )
-	{
-		Edge& e = edges[p];
-		s += e.weight;
-		p=e.next;
-	}
-	//return s + getSourceW(i) + getSinkW(i);
-	//if (!((s + 2.0*vtcs[i].sourceW - vtcs[i].weight) == vtcs[i].sumW))
-	//	printf("sumW bad value %.2f", vtcs[i].sumW);
+	//TWeight s = 0;
+	//for (int p=vtcs[i].first; p > 0; )
+	//{
+	//	Edge& e = edges[p];
+	//	s += e.weight;
+	//	p=e.next;
+	//}
+	////return s + getSourceW(i) + getSinkW(i);
+	////if (!((s + 2.0*vtcs[i].sourceW - vtcs[i].weight) == vtcs[i].sumW))
+	////	printf("sumW bad value %.2f", vtcs[i].sumW);
 
-	//CV_Assert((s + 2.0*vtcs[i].sourceW - vtcs[i].weight) == vtcs[i].sumW);
-	return s + 2.0*vtcs[i].sourceW - vtcs[i].weight;
+	////CV_Assert((s + 2.0*vtcs[i].sourceW - vtcs[i].weight) == vtcs[i].sumW);
+	//return s + 2.0*vtcs[i].sourceW - vtcs[i].weight;
 }
 
 template <class TWeight>
@@ -365,7 +378,7 @@ void GCGraph<TWeight>::addWeight(const int i, const int j, const TWeight w)
 }
 
 template <class TWeight>
-cv::Point GCGraph<TWeight>::searchSimpleEdges(int startE, int startV,bool first)
+cv::Point GCGraph<TWeight>::searchSimpleEdges(int startE, int startV, const bool first)
 {
 	if (edges.size() == 0)
 		return 0;
@@ -379,10 +392,8 @@ cv::Point GCGraph<TWeight>::searchSimpleEdges(int startE, int startV,bool first)
 		double w = edges[i].weight;
 
 		if (w == 0)
-
 			continue;  // possibly removed edge. (dst is  -1) 
 
-		//if ((w > 0.5 * sumW(edges[i].dst)) || (w > 0.5 * sumW(edges[i + 1].dst)))
 		int d1 = edges[i].dst, d2=edges[i+1].dst;
 		if ((w > 0.5 * vtcs[d1].sumW) || (w > 0.5 * vtcs[d2].sumW))
 		{
@@ -397,7 +408,6 @@ cv::Point GCGraph<TWeight>::searchSimpleEdges(int startE, int startV,bool first)
 		if (vtcs[i].first == 0)  // no edges : removed node
 			continue;
 		double w = vtcs[i].sourceW;
-		//double s = 0.5*sumW(i);
 		double s = 0.5*vtcs[i].sumW;
 
 		if ((w > 0.5*source_sigmaW) || (w > s))
@@ -424,10 +434,7 @@ cv::Point GCGraph<TWeight>::searchSimpleEdges(int startE, int startV,bool first)
 		double w = edges[i].weight;
 
 		if (w == 0)
-
 			continue;  // possibly removed edge. (dst is  -1) 
-
-		//if ((w > 0.5 * sumW(edges[i].dst)) || (w > 0.5 * sumW(edges[i + 1].dst)))
 		
 		int d1 = edges[i].dst, d2 = edges[i + 1].dst;
 		if ((w > 0.5 * vtcs[d1].sumW) || (w > 0.5 * vtcs[d2].sumW))
@@ -446,7 +453,6 @@ cv::Point GCGraph<TWeight>::searchSimpleEdges(int startE, int startV,bool first)
 		if (vtcs[i].first == 0)  // no edges : removed node
 			continue;
 		double w = vtcs[i].sourceW;
-		//double s = 0.5*sumW(i);
 		double s = 0.5*vtcs[i].sumW;
 
 		if ((w > 0.5*source_sigmaW) || (w > s))
@@ -554,6 +560,7 @@ void GCGraph<TWeight>::addTermWeights( int i, TWeight sourceW, TWeight sinkW )
 	//vtcs[i].sourceW += sourceW;  // Wrong place
 }
 
+// Boykov-kolmogoroff algorithm
 template <class TWeight>
 TWeight GCGraph<TWeight>::maxFlow()
 {
@@ -571,7 +578,7 @@ TWeight GCGraph<TWeight>::maxFlow()
     {
         Vtx* v = vtxPtr + i;
         v->ts = 0;
-        if( v->weight != 0 )
+		if (v->weight != 0) 
         {
             last = last->next = v;
             v->dist = 1;
@@ -581,6 +588,7 @@ TWeight GCGraph<TWeight>::maxFlow()
         else
             v->parent = 0;
     }
+
     first = first->next;
     last->next = nilNode;
     nilNode->next = 0;
@@ -602,7 +610,7 @@ TWeight GCGraph<TWeight>::maxFlow()
                 vt = v->t;
                 for( ei = v->first; ei != 0; ei = edgePtr[ei].next )
                 {
-                    if( edgePtr[ei^vt].weight == 0 )
+					if (edgePtr[ei^vt].weight == 0)
                         continue;
                     u = vtxPtr+edgePtr[ei].dst;
                     if( !u->parent )
@@ -704,7 +712,7 @@ TWeight GCGraph<TWeight>::maxFlow()
 
             for( ei = v2->first; ei != 0; ei = edgePtr[ei].next )
             {
-                if( edgePtr[ei^(vt^1)].weight == 0 )
+				if (edgePtr[ei ^ (vt ^ 1)].weight == 0) 
                     continue;
                 u = vtxPtr+edgePtr[ei].dst;
                 if( u->t != vt || u->parent == 0 )
@@ -780,8 +788,248 @@ TWeight GCGraph<TWeight>::maxFlow()
     return flow;
 }
 
+// Boykov-kolmogoroff algorithm
 template <class TWeight>
-bool GCGraph<TWeight>::inSourceSegment( int i )
+TWeight GCGraph<TWeight>::maxFlow(int r, double * result_ptr)
+{
+	const int TERMINAL = -1, ORPHAN = -2;
+	Vtx stub, *nilNode = &stub, *first = nilNode, *last = nilNode;
+	int curr_ts = 0;
+	stub.next = nilNode;
+	Vtx *vtxPtr = &vtcs[0];
+	Edge *edgePtr = &edges[0];
+
+	std::vector<Vtx*> orphans;
+
+	// initialize the active queue and the graph vertices
+	for (int i = 0; i < (int)vtcs.size(); i++)
+	{
+		Vtx* v = vtxPtr + i;
+		if (v->region != r)
+			continue;
+		v->ts = 0;
+		if (v->weight != 0)
+		{
+			last = last->next = v;
+			v->dist = 1;
+			v->parent = TERMINAL;
+			v->t = v->weight < 0;
+		}
+		else
+			v->parent = 0;
+	}
+
+	first = first->next;
+	last->next = nilNode;
+	nilNode->next = 0;
+
+	// run the search-path -> augment-graph -> restore-trees loop
+	for (;;)
+	{
+		Vtx* v, *u;
+		int e0 = -1, ei = 0, ej = 0;
+		TWeight minWeight, weight;
+		uchar vt;
+
+		// grow S & T search trees, find an edge connecting them
+		while (first != nilNode)
+		{
+			v = first;
+			if (v->parent)
+			{
+				vt = v->t;
+				for (ei = v->first; ei != 0; ei = edgePtr[ei].next)
+				{
+					if (edgePtr[ei^vt].weight == 0)
+						continue;
+					if ((vtxPtr + edgePtr[ei].dst)->region != r)
+						continue;
+					u = vtxPtr + edgePtr[ei].dst;
+					if (!u->parent)
+					{
+						u->t = vt;
+						u->parent = ei ^ 1;
+						u->ts = v->ts;
+						u->dist = v->dist + 1;
+						if (!u->next)
+						{
+							u->next = nilNode;
+							last = last->next = u;
+						}
+						continue;
+					}
+
+					if (u->t != vt)
+					{
+						e0 = ei ^ vt;
+						break;
+					}
+
+					if (u->dist > v->dist + 1 && u->ts <= v->ts)
+					{
+						// reassign the parent
+						u->parent = ei ^ 1;
+						u->ts = v->ts;
+						u->dist = v->dist + 1;
+					}
+				}
+				if (e0 > 0)
+					break;
+			}
+			// exclude the vertex from the active list
+			first = first->next;
+			v->next = 0;
+		}
+
+		if (e0 <= 0)
+			break;
+
+		// find the minimum edge weight along the path
+		minWeight = edgePtr[e0].weight;
+		CV_Assert(minWeight > 0);
+		// k = 1: source tree, k = 0: destination tree
+		for (int k = 1; k >= 0; k--)
+		{
+			for (v = vtxPtr + edgePtr[e0^k].dst;; v = vtxPtr + edgePtr[ei].dst)
+			{
+				if ((ei = v->parent) < 0)
+					break;
+				weight = edgePtr[ei^k].weight;
+				CV_Assert(v->region == r);   //TODO remove***********************************************
+				minWeight = MIN(minWeight, weight);
+				CV_Assert(minWeight > 0);
+			}
+			weight = fabs(v->weight);
+			minWeight = MIN(minWeight, weight);
+			CV_Assert(minWeight > 0);
+		}
+
+		// modify weights of the edges along the path and collect orphans
+		edgePtr[e0].weight -= minWeight;
+		edgePtr[e0 ^ 1].weight += minWeight;
+		flow += minWeight;
+
+		// k = 1: source tree, k = 0: destination tree
+		for (int k = 1; k >= 0; k--)
+		{
+			for (v = vtxPtr + edgePtr[e0^k].dst;; v = vtxPtr + edgePtr[ei].dst)
+			{
+				if ((ei = v->parent) < 0)
+					break;
+				edgePtr[ei ^ (k ^ 1)].weight += minWeight;
+				if ((edgePtr[ei^k].weight -= minWeight) == 0)
+				{
+					orphans.push_back(v);
+					v->parent = ORPHAN;
+				}
+				CV_Assert(v->region == r);   //TODO remove***********************************************
+			}
+
+			v->weight = v->weight + minWeight*(1 - k * 2);
+			if (v->weight == 0)
+			{
+				orphans.push_back(v);
+				v->parent = ORPHAN;
+			}
+		}
+
+		// restore the search trees by finding new parents for the orphans
+		curr_ts++;
+		while (!orphans.empty())
+		{
+			Vtx* v2 = orphans.back();
+			orphans.pop_back();
+
+			int d, minDist = INT_MAX;
+			e0 = 0;
+			vt = v2->t;
+
+			for (ei = v2->first; ei != 0; ei = edgePtr[ei].next)
+			{
+				if ((edgePtr[ei ^ (vt ^ 1)].weight == 0) || ((vtxPtr + edgePtr[ei].dst)->region != r))
+					continue;
+				u = vtxPtr + edgePtr[ei].dst;
+				if (u->t != vt || u->parent == 0)
+					continue;
+				// compute the distance to the tree root
+				for (d = 0;;)
+				{
+					if (u->ts == curr_ts)
+					{
+						d += u->dist;
+						break;
+					}
+					ej = u->parent;
+					d++;
+					if (ej < 0)
+					{
+						if (ej == ORPHAN)
+							d = INT_MAX - 1;
+						else
+						{
+							u->ts = curr_ts;
+							u->dist = 1;
+						}
+						break;
+					}
+					u = vtxPtr + edgePtr[ej].dst;
+				}
+
+				// update the distance
+				if (++d < INT_MAX)
+				{
+					if (d < minDist)
+					{
+						minDist = d;
+						e0 = ei;
+					}
+					for (u = vtxPtr + edgePtr[ei].dst; u->ts != curr_ts; u = vtxPtr + edgePtr[u->parent].dst)
+					{
+						u->ts = curr_ts;
+						u->dist = --d;
+					}
+				}
+			}
+
+			if ((v2->parent = e0) > 0)
+			{
+				v2->ts = curr_ts;
+				v2->dist = minDist;
+				continue;
+			}
+
+			/* no parent is found */
+			v2->ts = 0;
+			for (ei = v2->first; ei != 0; ei = edgePtr[ei].next)
+			{
+				u = vtxPtr + edgePtr[ei].dst;
+				if (u->region != r)
+					continue;
+				ej = u->parent;
+				if (u->t != vt || !ej)
+					continue;
+				if (edgePtr[ei ^ (vt ^ 1)].weight && !u->next)
+				{
+					u->next = nilNode;
+					last = last->next = u;
+				}
+				if (ej > 0 && vtxPtr + edgePtr[ej].dst == v2)
+				{
+					orphans.push_back(u);
+					u->parent = ORPHAN;
+					CV_Assert(u->region == r);   //TODO remove***********************************************
+				}
+			}
+		}
+	}
+	*result_ptr = flow;
+	printf("region %d done, maxFlow=%f\n", r, flow);
+	return flow;
+}
+
+
+template <class TWeight>
+inline bool GCGraph<TWeight>::inSourceSegment( int i )
 {
     CV_Assert( i>=0 && i<(int)vtcs.size() );
     return vtcs[i].t == 0;
