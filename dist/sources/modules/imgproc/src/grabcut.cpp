@@ -552,20 +552,17 @@ static inline double getSourcePendingSumW(const Point p, const Mat& img, const M
 
 
 
-// Init matrix sigmaW of total weight for pixels in non reduced (virtual) graph. Terminal weights are included.
+// Init matrix sigmaW of total weight for pixels in non reduced graph. Terminal weights are included.
 static void initSigmaW(const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, Mat& sigmaW, 
 	                       const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW, double lambda)
 {
 	Point p;
-
-	//sigmaW.create(img.rows, img.cols, CV_64FC1);  // double done by constructGCGrapg_slim
 	
 	for (p.y = 0; p.y < img.rows; p.y++)
 	{
 		for (p.x = 0; p.x < img.cols; p.x++)
 		{   
 			double s = 0;
-			//sigmaW.at<double>(p.y, p.x) = 0;
 			s += leftW.at<double>(p.y, p.x);
 			s += upleftW.at<double>(p.y, p.x);
 			s += upW.at<double>(p.y, p.x);
@@ -588,7 +585,6 @@ static void initSigmaW(const Mat& img, const Mat& mask, const GMM& bgdGMM, const
 			{
 				fromSource = -log(bgdGMM(color));
 				toSink = -log(fgdGMM(color));
-				//printf("from source: %.2f color %d %d %d", fromSource, color[0], color[1], color[2]);
 			}
 			else if (mask.at<uchar>(p) == GC_BGD)
 			{
@@ -653,7 +649,7 @@ static inline double slimSumW(const Mat& img, const int i, const Point p, GCGrap
 #define BV_NO_VTX_FOUND -10
 
 // search for first  node  to which pixel p can be joined
-// return node index (negative GC_JNT_BGD or GC_JNT_FGD for terminal node) or BV_NO_VTX_FOUND
+// return node index (negative values GC_JNT_BGD or GC_JNT_FGD for terminal nodes) or BV_NO_VTX_FOUND
 static inline int searchJoin(const Point p, const Mat& img, const Mat& sigmaW, const Mat& pxl2Vtx, 
 	                  const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW, 
 					  GCGraph<double>& graph, const Mat_<Point>& Vtx2pxl, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM,
@@ -755,25 +751,34 @@ static inline int searchJoin(const Point p, const Mat& img, const Mat& sigmaW, c
 // optimized version of ConstructGCGraph. 
 // Author BV
 // 
+
+#define h_split 4
+#define v_split 3
+#define n_thread h_split*v_split
+
 static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, double lambda,
                        const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW,
 					   GCGraph<double>& graph, Mat& pxl2Vtx)
 {
     int vtxCount = img.cols*img.rows,
         edgeCount = 2*(4*img.cols*img.rows - 3*(img.cols + img.rows) + 2);
+
+	int h_reg = (int)img.cols / h_split, v_reg = (int)img.rows / v_split;
 	
     graph.create(vtxCount, edgeCount);
     Point p;
 	int vtxIdx;
-	double s2tw=0.0;  // source to sink weight
 	int count = 0;
 
 	Mat_<Point> Vtx2pxl(img.rows, img.cols); // lists of pixels joined to vertices
 	std::vector<Point> sinkToPxl, sourceToPxl; // lists of pixels joined to terminal nodes
-	Mat_<double> sigmaW(img.rows, img.cols, CV_64FC1);  //double
-	Vtx2pxl = Point(-1, -1);
-	initSigmaW(img, mask, bgdGMM, fgdGMM, sigmaW, leftW, upleftW, upW, uprightW, lambda);
+	Mat_<double> sigmaW(img.rows, img.cols, CV_64FC1); 
 
+	Vtx2pxl = Point(-1, -1);
+
+	//initSigmaW(img, mask, bgdGMM, fgdGMM, sigmaW, leftW, upleftW, upW, uprightW, lambda);  // not needed if searchjoin() is not called
+
+	int h_countet = 0;
     for( p.y = 0; p.y < img.rows; p.y++ )
     {
         for( p.x = 0; p.x < img.cols; p.x++)
@@ -786,8 +791,8 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 			// add node and set its t-weights
             if( mask.at<uchar>(p) == GC_PR_BGD || mask.at<uchar>(p) == GC_PR_FGD )
             {
-				int i = searchJoin(p, img, sigmaW, pxl2Vtx, leftW, upleftW, upW, uprightW, graph, Vtx2pxl, mask, bgdGMM, fgdGMM, lambda, sinkToPxl, sourceToPxl);
-				//i = BV_NO_VTX_FOUND; // BLOCK JOIN REMOVE*************************************************************************
+				//int i = searchJoin(p, img, sigmaW, pxl2Vtx, leftW, upleftW, upW, uprightW, graph, Vtx2pxl, mask, bgdGMM, fgdGMM, lambda, sinkToPxl, sourceToPxl);
+				int i = BV_NO_VTX_FOUND; // BLOCK JOIN REMOVE*************************************************************************
 				if (i != BV_NO_VTX_FOUND)
 				{
 					count++;
@@ -810,7 +815,7 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 				}
 				else// NO_VTX_FOUND
 				{
-					vtxIdx = graph.addVtx();
+					vtxIdx = graph.addVtx(((int)p.y / v_reg)*h_split + ((int)p.x / h_reg));
 					pxl2Vtx.at<int>(p) = vtxIdx;
 					graph.setFirstP(vtxIdx, p);  // first and last pixel
 
@@ -822,9 +827,9 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 					graph.addTermWeights(vtxIdx, fromSource, toSink);
 				}
 				else if (vtxIdx == GC_JNT_BGD)
-				    s2tw += getSourceW(p, img, mask, bgdGMM, fgdGMM, lambda);  // -log(bgdGMM(color))??
+				    graph.stotW += getSourceW(p, img, mask, bgdGMM, fgdGMM, lambda);  // -log(bgdGMM(color))??
 				else
-					s2tw += getSinkW(p, img, mask, bgdGMM, fgdGMM, lambda);
+					graph.stotW += getSinkW(p, img, mask, bgdGMM, fgdGMM, lambda);
 				//printf("slim from source: %.2f color %d %d %d", fromSource, color[0], color[1], color[2]);
             }
             else if( mask.at<uchar>(p) == GC_BGD )
@@ -868,7 +873,7 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 						graph.addTermWeights(vtx, (jfg(n) ? w : 0), (jbg(n) ? w : 0));
 					else
 						if (jbg(vtx) != jbg(n))
-							s2tw += w;
+							graph.stotW += w;
             }
             if( p.x>0 && p.y>0 )
             {
@@ -888,7 +893,7 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 						graph.addTermWeights(vtx, (jfg(n) ? w : 0), (jbg(n) ? w : 0));
 					else
 						if (jbg(vtx) != jbg(n))
-							s2tw += w;
+							graph.stotW += w;
             }
             if( p.y>0 )
             {
@@ -908,7 +913,7 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 					    graph.addTermWeights(vtx, (jfg(n) ? w : 0), (jbg(n) ? w : 0));
 					else
 						if (jbg(vtx) != jbg(n))
-							s2tw += w;
+							graph.stotW += w;
             }
             if( p.x<img.cols-1 && p.y>0 )
             {
@@ -928,27 +933,34 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 					    graph.addTermWeights(vtx, (jfg(n) ? w : 0), (jbg(n) ? w : 0));
 					else
 						if (jbg(vtx) != jbg(n))
-							s2tw += w;
+							graph.stotW += w;
             }
-			
-			//double flow = graph.maxFlow();
-			//printf("count=%d ", count++);
-			//printf("Slim flow: %.2f\n", flow);
-			
         }
     }
-	//printf("s- t weight: %.2f\n", s2tw);
+	
 	printf("joinable vtx found %d\n", count);
-
-	printf("s2tw %.2f\n", s2tw);
 }
 
+#include <thread>
 
 //  Slim version of Estimate segmentation using MaxFlow algorithm
-static void estimateSegmentation_slim( GCGraph<double>& graph, Mat& mask, Mat& ptx2Vtx )
-{
+static void estimateSegmentation_slim( GCGraph<double>& graph, Mat& mask, const Mat& ptx2Vtx )
+{   
+	clock_t tStart, tEnd;
+	double result[n_thread];
+	tStart = clock();
+	std::vector<std::thread> pool;
+	double (GCGraph<double>::*memfunc)(int r, double * result_ptr) = &GCGraph<double>::maxFlow;
+	for (int r = 0; r < n_thread; r++)
+		pool.push_back(std::thread (memfunc, &graph, r, (&result[0])+r));
+
+	for (auto& t : pool)
+		t.join();
+
     double flow=graph.maxFlow();
-	printf("Slim flow: %.2f\n", flow);
+	tEnd = clock();
+	printf("maxflow slim time %.2f\n", (double)(tEnd - tStart));
+	printf("Slim flow: %.2f\n", flow + graph.stotW);
     Point p;
     for( p.y = 0; p.y < mask.rows; p.y++ )
     {
@@ -997,9 +1009,10 @@ void cv::grabCut_slim( InputArray _img, InputOutputArray _mask, Rect rect,
 
     GMM bgdGMM( bgdModel ), fgdGMM( fgdModel );
     Mat compIdxs( img.size(), CV_32SC1 );
-	Mat pxl2Vtx(img.size(), CV_32SC1);   // pixel vertices
+	//Mat pxl2Vtx(img.size(), CV_32SC1);   // pixel vertices
+	Mat pxl2Vtx(img.size(), CV_32S);
 
-	clock_t tStart;
+	clock_t tStart, tEnd;
     if( mode == GC_INIT_WITH_RECT || mode == GC_INIT_WITH_MASK )
     {
         if( mode == GC_INIT_WITH_RECT )
@@ -1008,7 +1021,8 @@ void cv::grabCut_slim( InputArray _img, InputOutputArray _mask, Rect rect,
             checkMask( img, mask );
 		tStart = clock();
         initGMMs( img, mask, bgdGMM, fgdGMM );
-		printf("initGMM: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
+		tEnd = clock();
+		printf("initGMM: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
     }
 
     if( iterCount <= 0)
@@ -1021,46 +1035,56 @@ void cv::grabCut_slim( InputArray _img, InputOutputArray _mask, Rect rect,
     const double lambda = 9*gamma;
 	tStart = clock();
     const double beta = calcBeta( img );
-	printf("calcBeta: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
+	tEnd = clock();
+	printf("calcBeta: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
 
     Mat leftW, upleftW, upW, uprightW, sigmaNW;
 
 	tStart = clock();
     calcNWeights( img, leftW, upleftW, upW, uprightW, beta, gamma );
-	printf("calcNWeights: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
+	tEnd = clock();
+	printf("calcNWeights: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
 	
     for( int i = 0; i < iterCount; i++ )
     {
         GCGraph<double> graph;
 		tStart = clock();
         assignGMMsComponents( img, mask, bgdGMM, fgdGMM, compIdxs );
-		printf("assignGMMsComponents: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
+		tEnd = clock();
+		printf("assignGMMsComponents: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
 
 		tStart = clock();
         learnGMMs( img, mask, compIdxs, bgdGMM, fgdGMM );
-		printf("learnGMMs: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
+		tEnd = clock();
+		printf("learnGMMs: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
 
 		tStart = clock();
         constructGCGraph_slim(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph, pxl2Vtx);
-		printf("construcGCGraph slim: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
+		tEnd = clock();
+		printf("construcGCGraph slim: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
 
-		int c = graph.reduce();
-		printf("simple edges reduced %d\n", c);
 
-		graph.searchSimpleEdges(0, 0, false);  // TODO : remove
+		tStart = clock();
+		//int c = graph.reduce();
+		tEnd = clock();
+		printf("reduce: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+		//printf("simple edges reduced %d\n", c);
 
-		GCGraph<double> graph2;
-		constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph2);
-		double flow = graph2.maxFlow();
-		printf("test flow: %.2f\n", flow);
+		//graph.searchSimpleEdges(0, 0, false);  // TODO : remove
+
+		//GCGraph<double> graph2;
+		//constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph2);
+		//double flow = graph2.maxFlow();
+		//printf("test flow: %.2f\n", flow);
 
 		tStart = clock();
         estimateSegmentation_slim( graph, mask, pxl2Vtx );
-		printf("estimateSegmentation slim: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
+		tEnd = clock();
+		printf("estimateSegmentation slim: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
 
 		//graph.searchSimpleEdges(0, 0, false);  // caution : MaxFlow modifies weights, so false result
 
-		graph2.searchSimpleEdges(0, 0, false);  // TODO : remove
+		//graph2.searchSimpleEdges(0, 0, false);  // TODO : remove
 	}
 }
 // End of modification. BV
@@ -1139,7 +1163,23 @@ Estimate segmentation using MaxFlow algorithm
 */
 static void estimateSegmentation(GCGraph<double>& graph, Mat& mask)
 {
+	clock_t tStart, tEnd;
+	tStart = clock();
+
+	//***********
+	double result[n_thread];
+	std::vector<std::thread> pool;
+	double (GCGraph<double>::*memfunc)(int r, double * result_ptr) = &GCGraph<double>::maxFlow;
+	for (int r = 0; r < n_thread; r++)
+		pool.push_back(std::thread(memfunc, &graph, r, (&result[0]) + r));
+
+	for (auto& t : pool)
+		t.join();
+
+	//***********
 	double flow=graph.maxFlow();
+	tEnd = clock();
+	printf("maxflow %.2f", (double)(tEnd - tStart));
 	printf("Flow: %.2fs\n", flow);
 	Point p;
 	for (p.y = 0; p.y < mask.rows; p.y++)
@@ -1165,7 +1205,7 @@ void cv::grabCut(InputArray _img, InputOutputArray _mask, Rect rect,
 	Mat& mask = _mask.getMatRef();
 	Mat& bgdModel = _bgdModel.getMatRef();
 	Mat& fgdModel = _fgdModel.getMatRef();
-	clock_t tStart;
+	clock_t tStart, tEnd;
 
 	if (img.empty())
 		CV_Error(CV_StsBadArg, "image is empty");
@@ -1205,11 +1245,13 @@ void cv::grabCut(InputArray _img, InputOutputArray _mask, Rect rect,
 
 		tStart = clock();
 		constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph);
-		printf("construcGCGraph: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
+		tEnd = clock();
+		printf("construcGCGraph: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
 
 		tStart = clock();
 		estimateSegmentation(graph, mask);
-		printf("estimateSegmentation: %.2fs\n", (double)(clock() - tStart) / CLOCKS_PER_SEC);
+		tEnd = clock();
+		printf("estimateSegmentation: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
 	}
 }
 
