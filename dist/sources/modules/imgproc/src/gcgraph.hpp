@@ -591,7 +591,7 @@ TWeight GCGraph<TWeight>::maxFlow()
 
     first = first->next;
     last->next = nilNode;
-    nilNode->next = 0;
+    nilNode->next = 0; 
 
     // run the search-path -> augment-graph -> restore-trees loop
     for(;;)
