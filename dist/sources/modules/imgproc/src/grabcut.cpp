@@ -753,9 +753,35 @@ static inline int searchJoin(const Point p, const Mat& img, const Mat& sigmaW, c
 // Author BV
 // 
 
-#define h_split 8
-#define v_split 6
+#define h_split 4
+#define v_split 2
 #define n_thread h_split*v_split
+
+#include <mutex>
+#include <condition_variable>
+
+std::mutex m;
+std::condition_variable c_v;
+
+int current_region = 0;
+
+static void worker(GCGraph<double> * graph)
+{
+	double result;
+	int region;
+
+	for (;;)
+	{
+		std::unique_lock<std::mutex> lk(m);
+		//c_v.wait(lk, []{return 0; });
+		region=current_region++;
+		lk.unlock();
+		//c_v.notify_one();
+		if (region >= n_thread )
+			break;
+		graph->maxFlow(region, &result);
+	}
+}
 
 static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, double lambda,
                        const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW,
@@ -927,15 +953,19 @@ static void estimateSegmentation_slim( GCGraph<double>& graph, Mat& mask, const 
 	double result[n_thread];
 	tStart = clock();
 	std::vector<std::thread> pool;
-	double (GCGraph<double>::*memfunc)(int r, double * result_ptr) = &GCGraph<double>::maxFlow;
-	for (int r = 0; r < n_thread; r++)
-		pool.push_back(std::thread (memfunc, &graph, r, (&result[0])+r));
+	//double (GCGraph<double>::*memfunc)(int r, double * result_ptr) = &GCGraph<double>::maxFlow;
+	for (int r = 0; r < 8; r++)
+		//pool.push_back(std::thread (memfunc, &graph, r, (&result[0])+r));
+		pool.push_back(std::thread(worker, &graph));
 
 	for (auto& t : pool)
 		t.join();
+
+
 	tEnd = clock();
 	printf("maxflow slim time par. phase%.2f\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
 	tStart = clock();
+	
     double flow=graph.maxFlow();
 
 	for (int i = 0; i < n_thread; i++)
