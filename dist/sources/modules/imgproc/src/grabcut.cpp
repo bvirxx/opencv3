@@ -753,8 +753,8 @@ static inline int searchJoin(const Point p, const Mat& img, const Mat& sigmaW, c
 // Author BV
 // 
 
-#define h_split 4
-#define v_split 2
+#define h_split 8
+#define v_split 8
 #define n_thread h_split*v_split
 
 #include <mutex>
@@ -765,22 +765,40 @@ std::condition_variable c_v;
 
 int current_region = 0;
 
-static void worker(GCGraph<double> * graph)
+static void worker(GCGraph<double> * graph, int l, double * result)
 {
-	double result;
 	int region;
 
 	for (;;)
 	{
 		std::unique_lock<std::mutex> lk(m);
 		//c_v.wait(lk, []{return 0; });
-		region=current_region++;
+		region=(current_region++)<<(l);
 		lk.unlock();
 		//c_v.notify_one();
 		if (region >= n_thread )
 			break;
-		graph->maxFlow(region, &result);
+		graph->maxFlow(region, 255<<(l), result+region);
 	}
+}
+
+static int ** quadtree(int lv)
+{
+	int** tr = new int*[lv];
+	for (int i = 0; i < lv; ++i)
+		tr[i] = new int[lv];
+	//int * tr = new int[lv, lv];
+	if (lv == 1)
+		tr[0][0] = 0;
+	else
+	{
+		int ** t = quadtree(lv / 2);
+		for (int i = 0; i < lv; i++)
+			for (int j = 0; j < lv;j++)
+			     tr[i][j] = t[i / 2][j/2] * 4 + (i % 2)*2 + j%2;
+		delete[] t;
+	}
+	return tr;
 }
 
 static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, double lambda,
@@ -790,7 +808,7 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
     int vtxCount = img.cols*img.rows,
         edgeCount = 2*(4*img.cols*img.rows - 3*(img.cols + img.rows) + 2);
 
-	int h_reg = (int)img.cols / h_split, v_reg = (int)img.rows / v_split;
+	int h_reg = (int)img.cols / h_split+1, v_reg = (int)img.rows / v_split +1;
 	
     graph.create(vtxCount, edgeCount);
     Point p;
@@ -805,6 +823,8 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 
 	//initSigmaW(img, mask, bgdGMM, fgdGMM, sigmaW, leftW, upleftW, upW, uprightW, lambda);  // not needed if searchjoin() is not called
 
+	int ** region = quadtree(h_split);
+
     for( p.y = 0; p.y < img.rows; p.y++ )
     {
         for( p.x = 0; p.x < img.cols; p.x++)
@@ -817,7 +837,8 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 			// add node and set its t-weights
             if( mask.at<uchar>(p) == GC_PR_BGD || mask.at<uchar>(p) == GC_PR_FGD )
             {
-				vtxIdx = graph.addVtx(((int)p.y / v_reg)*h_split + ((int)p.x / h_reg));
+				//vtxIdx = graph.addVtx(((int)p.y / v_reg)*h_split + ((int)p.x / h_reg));
+				vtxIdx = graph.addVtx(region[p.y / v_reg][p.x / h_reg]);
 				pxl2Vtx.at<int>(p) = vtxIdx;
 				graph.setFirstP(vtxIdx, p);  // first and last pixel
 				
@@ -947,34 +968,63 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 #include <thread>
 
 //  Slim version of Estimate segmentation using MaxFlow algorithm
-static void estimateSegmentation_slim( GCGraph<double>& graph, Mat& mask, const Mat& ptx2Vtx )
+static double estimateSegmentation_slim( GCGraph<double>& graph, Mat& mask, const Mat& ptx2Vtx )
 {   
 	clock_t tStart, tEnd;
 	double result[n_thread];
 	tStart = clock();
 	std::vector<std::thread> pool;
-	//double (GCGraph<double>::*memfunc)(int r, double * result_ptr) = &GCGraph<double>::maxFlow;
+	
+	double flow = 0;
+	current_region = 0;
 	for (int r = 0; r < 8; r++)
 		//pool.push_back(std::thread (memfunc, &graph, r, (&result[0])+r));
-		pool.push_back(std::thread(worker, &graph));
+		pool.push_back(std::thread(worker, &graph, 0, &result[0]));
 
 	for (auto& t : pool)
 		t.join();
 
+	for (int i = 0; i < n_thread; i++)
+		flow += result[i];
+	
+	pool.clear();
+	current_region = 0;
+
+	for (int r = 0; r < 8; r++)
+		//pool.push_back(std::thread (memfunc, &graph, r, (&result[0])+r));
+		pool.push_back(std::thread(worker, &graph, 1, &result[0]));
+
+	for (auto& t : pool)
+		t.join();
+
+	for (int i = 0; (i<<1) < n_thread; i++)
+		flow += result[i<<1];
+
+	
+	pool.clear();
+	current_region = 0;
+
+	for (int r = 0; r < 8; r++)
+		//pool.push_back(std::thread (memfunc, &graph, r, (&result[0])+r));
+		pool.push_back(std::thread(worker, &graph, 2, &result[0]));
+
+	for (auto& t : pool)
+		t.join();
+
+	for (int i = 0; (i<<2) < n_thread; i++)
+		flow += result[i<<2];
 
 	tEnd = clock();
 	printf("maxflow slim time par. phase%.2f\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+	
 	tStart = clock();
 	
-    double flow=graph.maxFlow();
-
-	for (int i = 0; i < n_thread; i++)
-		flow += result[i];
+    flow +=graph.maxFlow();
 
 	tEnd = clock();
-	printf("maxflow slim time seq. phase %.2f\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
-	printf("Slim flow: %f\n", flow + graph.stotW);
-	printf("Slim stotW: %f\n", graph.stotW);
+	//printf("maxflow slim time seq. phase %.2f\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+	//printf("Slim flow: %f\n", flow + graph.stotW);
+	//printf("Slim stotW: %f\n", graph.stotW);
 
     Point p;
     for( p.y = 0; p.y < mask.rows; p.y++ )
@@ -1001,13 +1051,15 @@ static void estimateSegmentation_slim( GCGraph<double>& graph, Mat& mask, const 
             }
         }
     }
+	return flow + graph.stotW;
 }
 
 static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, double lambda,
 	const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW,
 	GCGraph<double>& graph);
-
+static double estimateSegmentation(GCGraph<double>& graph, Mat& mask);
 // Slim version of Grabcut algorithm
+
 void cv::grabCut_slim( InputArray _img, InputOutputArray _mask, Rect rect,
                   InputOutputArray _bgdModel, InputOutputArray _fgdModel,
                   int iterCount, int mode )
@@ -1028,16 +1080,14 @@ void cv::grabCut_slim( InputArray _img, InputOutputArray _mask, Rect rect,
 	Mat pxl2Vtx(img.size(), CV_32S);
 
 	clock_t tStart, tEnd;
+	tStart = clock();
     if( mode == GC_INIT_WITH_RECT || mode == GC_INIT_WITH_MASK )
     {
         if( mode == GC_INIT_WITH_RECT )
             initMaskWithRect( mask, img.size(), rect );
         else // flag == GC_INIT_WITH_MASK
             checkMask( img, mask );
-		tStart = clock();
         initGMMs( img, mask, bgdGMM, fgdGMM );
-		tEnd = clock();
-		printf("initGMM: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
     }
 
     if( iterCount <= 0)
@@ -1048,47 +1098,53 @@ void cv::grabCut_slim( InputArray _img, InputOutputArray _mask, Rect rect,
 
     const double gamma = 50;
     const double lambda = 9*gamma;
-	tStart = clock();
+
     const double beta = calcBeta( img );
-	tEnd = clock();
-	printf("calcBeta: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
 
     Mat leftW, upleftW, upW, uprightW, sigmaNW;
 
-	tStart = clock();
     calcNWeights( img, leftW, upleftW, upW, uprightW, beta, gamma );
-	tEnd = clock();
-	printf("calcNWeights: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
 	
     for( int i = 0; i < iterCount; i++ )
     {
         GCGraph<double> graph;
-		tStart = clock();
         assignGMMsComponents( img, mask, bgdGMM, fgdGMM, compIdxs );
-		tEnd = clock();
-		printf("assignGMMsComponents: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
-
-		tStart = clock();
         learnGMMs( img, mask, compIdxs, bgdGMM, fgdGMM );
 		tEnd = clock();
-		printf("learnGMMs: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+		printf("**************GMM model: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+
+		
 
 		tStart = clock();
         constructGCGraph_slim(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph, pxl2Vtx);
 		tEnd = clock();
-		printf("construcGCGraph slim: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+		printf("*************construcGCGraph slim: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
 
-
-
+		double flow;
+		/******************************************TODO remove*/
+		
 		GCGraph<double> graph2;
 		constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph2);
-		double flow = graph2.maxFlow();
-		printf("test flow: %.2f\n", flow);
-
 		tStart = clock();
-        estimateSegmentation_slim( graph, mask, pxl2Vtx );
+		flow = graph2.maxFlow();
 		tEnd = clock();
-		printf("estimateSegmentation slim: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+		printf("***************seq. test standard flow: %f seq maxFlow time %.2f\n", flow, (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+		Mat mask2 = mask.clone();
+		tStart = clock();
+		flow = estimateSegmentation(graph2, mask2);
+		tEnd = clock();
+		printf("**************test standard flow: %f estimateSegmentation time %.2f\n", flow, (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+		
+		/*************************************************/
+		
+		tStart = clock();
+		flow = graph.maxFlow();
+		tEnd = clock();
+		printf("***************seq. slim flow: %f seq maxFlow slim time %.2f\n", flow, (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+		tStart = clock();
+		flow = estimateSegmentation_slim(graph, mask, pxl2Vtx);
+		tEnd = clock();
+		printf("**************slim flow %f estimateSegmentation slim time %.2fs\n", flow, (double)(tEnd - tStart) / CLOCKS_PER_SEC);
 
 		//graph.searchSimpleEdges(0, 0, false);  // caution : MaxFlow modifies weights, so false result
 
@@ -1108,8 +1164,8 @@ static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM,
 	int vtxCount = img.cols*img.rows,
 		edgeCount = 2 * (4 * img.cols*img.rows - 3 * (img.cols + img.rows) + 2);
 
-	int h_reg = (int)img.cols / h_split, v_reg = (int)img.rows / v_split;
-
+	int h_reg = (int)img.cols / h_split+1, v_reg = (int)img.rows / v_split+1;
+	int ** region = quadtree(h_split);
 	graph.create(vtxCount, edgeCount);
 	Point p;
 	//int count = 0;
@@ -1118,7 +1174,8 @@ static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM,
 		for (p.x = 0; p.x < img.cols; p.x++)
 		{
 			// add node
-			int vtxIdx = graph.addVtx(((int)p.y / v_reg)*h_split + ((int)p.x / h_reg));
+			//int vtxIdx = graph.addVtx(((int)p.y / v_reg)*h_split + ((int)p.x / h_reg));
+			int vtxIdx = graph.addVtx(region[p.y / v_reg][p.x / h_reg]);
 			Vec3b color = img.at<Vec3b>(p);
 
 			// set t-weights
@@ -1172,27 +1229,65 @@ static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM,
 /*
 Estimate segmentation using MaxFlow algorithm
 */
-static void estimateSegmentation(GCGraph<double>& graph, Mat& mask)
+static double estimateSegmentation(GCGraph<double>& graph, Mat& mask)
 {
 	clock_t tStart, tEnd;
-	tStart = clock();
+	
 
 	//***********
+	double flow = 0;
+	current_region = 0;
+	
+	tStart = clock();
 	double result[n_thread];
 	std::vector<std::thread> pool;
-	double (GCGraph<double>::*memfunc)(int r, double * result_ptr) = &GCGraph<double>::maxFlow;
-	for (int r = 0; r < n_thread; r++)
-		pool.push_back(std::thread(memfunc, &graph, r, (&result[0]) + r));
+	//double (GCGraph<double>::*memfunc)(int r, int mask, double * result_ptr) = &GCGraph<double>::maxFlow;
+	for (int r = 0; r < 8; r++)
+		//pool.push_back(std::thread(memfunc, &graph, r, region_mask, (&result[0]) + r));
+		pool.push_back(std::thread(worker, &graph, 0, &result[0]));
+
+	for (auto& t : pool)
+		t.join();
+	for (int i = 0; i < n_thread; i++)
+		flow += result[i];
+
+	pool.clear();
+	current_region = 0;
+
+	for (int r = 0; r < 8; r++)
+		//pool.push_back(std::thread (memfunc, &graph, r, (&result[0])+r));
+		pool.push_back(std::thread(worker, &graph, 1, &result[0]));
 
 	for (auto& t : pool)
 		t.join();
 
-	//***********
-	double flow=graph.maxFlow();
+	for (int i = 0; (i<<1) < n_thread; i++)
+		flow += result[i<<1];
+	
+	pool.clear();
+	current_region = 0;
+
+	for (int r = 0; r < 8; r++)
+		//pool.push_back(std::thread (memfunc, &graph, r, (&result[0])+r));
+		pool.push_back(std::thread(worker, &graph, 2, &result[0]));
+
+	for (auto& t : pool)
+		t.join();
+
+	for (int i = 0; (i<<2) < n_thread; i++)
+		flow += result[i<<2];
+	
 
 	tEnd = clock();
-	printf("maxflow time %.2f\n", (double)(tEnd - tStart));
-	printf("Flow: %f\n", flow);
+	printf("maxflow time par phase %.2f\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+	
+	tStart = clock();
+
+	flow +=graph.maxFlow();
+
+	tEnd = clock();
+	//printf("maxflow time seq phase %.2f\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+	//printf("standard Flow: %f\n", flow);
 
 	Point p;
 	for (p.y = 0; p.y < mask.rows; p.y++)
@@ -1208,6 +1303,7 @@ static void estimateSegmentation(GCGraph<double>& graph, Mat& mask)
 			}
 		}
 	}
+	return flow + graph.stotW;
 }
 
 void cv::grabCut(InputArray _img, InputOutputArray _mask, Rect rect,
