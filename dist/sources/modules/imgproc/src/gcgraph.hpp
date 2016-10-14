@@ -45,8 +45,8 @@
 template <class TWeight> class GCGraph
 {
 public:
-	TWeight sink_sigmaW, source_sigmaW; // sums of terminal weights for all nodes. Note source to sink weight is not added.
-	TWeight stotW; // source to sink weight
+	//TWeight sink_sigmaW, source_sigmaW; // sums of terminal weights for all nodes. Note source to sink weight is not added.
+	//TWeight stotW; // source to sink weight
 	GCGraph();
 	GCGraph(unsigned int vtxCount, unsigned int edgeCount);
 	~GCGraph();
@@ -59,12 +59,12 @@ public:
 	TWeight maxFlow();
 	TWeight maxFlow(int r, int mask, double * result_ptr);
 	inline bool inSourceSegment(int i);
-	cv::Point getFirstP(const int i);
-	void setFirstP(const int i, const cv::Point p);
-	TWeight getSourceW(const int i);
-	TWeight getSinkW(const int i);
-	TWeight sumW(const int i);  // TODO not used; verify and remove
-	inline int edge(const int i, const int j);  // index of edge (i,j), NOEDGE if not found. Use REVERSE(i) for reverse edge.
+	//cv::Point getFirstP(const int i);
+	//void setFirstP(const int i, const cv::Point p);
+	//TWeight getSourceW(const int i);
+	//TWeight getSinkW(const int i);
+	//TWeight sumW(const int i);  // TODO not used; verify and remove
+	//inline int edge(const int i, const int j);  // index of edge (i,j), NOEDGE if not found. Use REVERSE(i) for reverse edge.
 	// interface for graph reduction
 	//void removeEdge(const int i, const int j);
 	//void joinNodes(const int i, const int j);
@@ -81,9 +81,9 @@ private:
 		int first;
 		int ts;
 		int dist;
-		TWeight weight, sourceW, sumW;  // weight=sourceW-sink; sumW=sum of weights for all adjacent edges, including t-links
+		TWeight weight; //sourceW, sumW;  // weight=sourceW-sink; sumW=sum of weights for all adjacent edges, including t-links
 		uchar t;
-		cv::Point firstP; // list of pixels joined to node
+		//cv::Point firstP; // list of pixels joined to node
 		int region;
 	};
 	class Edge
@@ -103,9 +103,9 @@ template <class TWeight>
 GCGraph<TWeight>::GCGraph()
 {
 	flow = 0;
-	sink_sigmaW = 0;
-	source_sigmaW = 0;
-	stotW = 0;
+	//sink_sigmaW = 0;
+	//source_sigmaW = 0;
+	//stotW = 0;
 }
 
 template <class TWeight>
@@ -130,7 +130,7 @@ int GCGraph<TWeight>::addVtx()
 {
 	Vtx v;
 	memset(&v, 0, sizeof(Vtx));
-	v.firstP = cv::Point(-1, -1); // init to empty list
+	//v.firstP = cv::Point(-1, -1); // init to empty list
 	vtcs.push_back(v);
 	return (int)vtcs.size() - 1;
 }
@@ -140,7 +140,7 @@ int GCGraph<TWeight>::addVtx(int r)
 {
 	Vtx v;
 	memset(&v, 0, sizeof(Vtx));
-	v.firstP = cv::Point(-1, -1); // init to empty list
+	//v.firstP = cv::Point(-1, -1); // init to empty list
 	v.region = r;
 	vtcs.push_back(v);
 	return (int)vtcs.size() - 1;
@@ -163,59 +163,59 @@ void GCGraph<TWeight>::addEdges(int i, int j, TWeight w, TWeight revw)
 	fromI.weight = w;
 	vtcs[i].first = (int)edges.size();
 	edges.push_back(fromI);
-	vtcs[i].sumW += w;
+	//vtcs[i].sumW += w;
 
 	toI.dst = i;
 	toI.next = vtcs[j].first;
 	toI.weight = revw;
 	vtcs[j].first = (int)edges.size();
 	edges.push_back(toI);
-	vtcs[j].sumW += revw;
+	//vtcs[j].sumW += revw;
 }
 
 # define NOEDGE -1;
 #define REVERSE( p ) (( (( p )&0x01) == 0) ? ( p ) + 1 :  ( p ) - 1);  // index for reverse edge
 
-template <class TWeight>
-cv::Point GCGraph<TWeight>::getFirstP(const int i)
-{
-	return vtcs[i].firstP;
-}
+//template <class TWeight>
+//cv::Point GCGraph<TWeight>::getFirstP(const int i)
+//{
+//	return vtcs[i].firstP;
+//}
 
-template <class TWeight>
-void GCGraph<TWeight>::setFirstP(const int i, const cv::Point p)
-{
-	vtcs[i].firstP = p;
-}
+//template <class TWeight>
+//void GCGraph<TWeight>::setFirstP(const int i, const cv::Point p)
+//{
+//	vtcs[i].firstP = p;
+//}
 
-template <class TWeight>
-TWeight  GCGraph<TWeight>::getSourceW(const int i)
-{
-	return vtcs[i].sourceW;
-}
+//template <class TWeight>
+//TWeight  GCGraph<TWeight>::getSourceW(const int i)
+//{
+//	return vtcs[i].sourceW;
+//}
 
-template <class TWeight>
-TWeight  GCGraph<TWeight>::getSinkW(const int i)
-{
-	return vtcs[i].sourceW - vtcs[i].weight;
-}
+//template <class TWeight>
+//TWeight  GCGraph<TWeight>::getSinkW(const int i)
+//{
+//	return vtcs[i].sourceW - vtcs[i].weight;
+//}
 
 // search for edges joining 2 vertices
-template <class TWeight>
-inline int GCGraph<TWeight>::edge(const int i, const int j)
-{
-	if (edges.size() == 0)
-		return NOEDGE;
-
-	for (int p = vtcs[i].first; p > 0;)
-	{
-		Edge& e = edges[p];
-		if (e.dst == j)
-			return p;
-		p = e.next;
-	}
-	return NOEDGE;
-}
+//template <class TWeight>
+//inline int GCGraph<TWeight>::edge(const int i, const int j)
+//{
+//	if (edges.size() == 0)
+//		return NOEDGE;
+//
+//	for (int p = vtcs[i].first; p > 0;)
+//	{
+//		Edge& e = edges[p];
+//		if (e.dst == j)
+//			return p;
+//		p = e.next;
+//	}
+//	return NOEDGE;
+//}
 
 //template <class TWeight>
 //void GCGraph<TWeight>::removeEdge(const int i, const int j)
@@ -340,10 +340,9 @@ inline int GCGraph<TWeight>::edge(const int i, const int j)
 //}
 
 // sum of weights for all edges adjacent to vtcs[i], including source and sink
-template <class TWeight>
-inline TWeight GCGraph<TWeight>::sumW(const int i)
-{                                                           // TODO not used; remove
-	return vtcs[i].sumW;
+//inline TWeight GCGraph<TWeight>::sumW(const int i)
+//{                                                           // TODO not used; remove
+	//return vtcs[i].sumW;
 
 	//TWeight s = 0;
 	//for (int p=vtcs[i].first; p > 0; )
@@ -358,7 +357,7 @@ inline TWeight GCGraph<TWeight>::sumW(const int i)
 
 	////CV_Assert((s + 2.0*vtcs[i].sourceW - vtcs[i].weight) == vtcs[i].sumW);
 	//return s + 2.0*vtcs[i].sourceW - vtcs[i].weight;
-}
+//}
 
 //template <class TWeight>
 //void GCGraph<TWeight>::addWeight(const int i, const int j, const TWeight w)
@@ -544,10 +543,10 @@ void GCGraph<TWeight>::addTermWeights(int i, TWeight sourceW, TWeight sinkW)
 {
 	CV_Assert(i >= 0 && i<(int)vtcs.size());
 
-	sink_sigmaW += sinkW;
-	source_sigmaW += sourceW;
-	vtcs[i].sumW += (sourceW + sinkW);
-	vtcs[i].sourceW += sourceW;
+	//sink_sigmaW += sinkW;
+	//source_sigmaW += sourceW;
+	//vtcs[i].sumW += (sourceW + sinkW);
+	//vtcs[i].sourceW += sourceW;
 
 
 	TWeight dw = vtcs[i].weight;
