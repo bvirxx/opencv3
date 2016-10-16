@@ -443,327 +443,16 @@ static void learnGMMs( const Mat& img, const Mat& mask, const Mat& compIdxs, GMM
     fgdGMM.endLearning();
 }
 
-// Sink (BGD) weight for pixel p in the non reduced (virtual) graph
-//static inline double getSinkW(Point p, const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, double lambda)
-//{
-//	double toSink = 0;
-//	Vec3b color = img.at<Vec3b>(p.y, p.x);
-//
-//	if (mask.at<uchar>(p) == GC_BGD)
-//
-//		toSink = lambda;
-//
-//	else if (mask.at<uchar>(p.y, p.x) == GC_PR_BGD || mask.at<uchar>(p.y, p.x) == GC_PR_FGD)
-//
-//		toSink = -log(fgdGMM(color)); // bien fgd (see original constructGCGraph)
-//
-//	return toSink;
-//}
-
-// Source (FGD) weight for pixel p in the non reduced (virtual) graph
-//static inline double getSourceW(Point p, const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, double lambda)
-//{
-//	double fromSource = 0;
-//	Vec3b color = img.at<Vec3b>(p.y, p.x);
-//
-//	if (mask.at<uchar>(p) == GC_FGD) 
-//
-//		fromSource = lambda;
-//
-//	else if (mask.at<uchar>(p.y, p.x) == GC_PR_BGD || mask.at<uchar>(p.y, p.x) == GC_PR_FGD)
-//
-//		fromSource = -log(bgdGMM(color));  // bien bgd
-//	
-//	return fromSource;
-//}
-
-//sum of weights of pending edges for pxl (joined or not joined) in current graph(pixel p not simplified)
-//static inline double pendingSumW(const Point p, const Point pxl, const Mat& img, const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW)
-//{
-//	double s = 0;
-//
-//	// border pxl
-//	if (((pxl.y == p.y) && (pxl.x < p.x)) || ((pxl.y == p.y - 1) && (pxl.x >= p.x)))  
-//	{
-//		if (pxl.x == p.x - 1) 
-//		    s += leftW.at<double>(Point(pxl.x + 1, pxl.y));
-//
-//		if (pxl.y < img.rows - 1)
-//		{
-//			s += upW.at<double>(pxl.y + 1, pxl.x);
-//
-//			if ((pxl.x > 0) && (pxl.x != p.x))
-//
-//				s += uprightW.at<double>(pxl.y + 1, pxl.x - 1);
-//
-//			if (pxl.x < img.cols - 1)
-//
-//				s += upleftW.at<double>(pxl.y + 1, pxl.x + 1);
-//
-//		}
-//	}
-//
-//	// 
-//	if ((pxl.y == p.y - 1) && (pxl.x == p.x - 1))
-//
-//		s += upleftW.at<double>(p);
-//
-//	return s;
-//}
-
-// sum of weights of pending edges for sink in current graph ( pixel p not simplified)
-//static inline double getSinkPendingSumW(const Point p, const Mat& img, const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW, const std::vector<Point>& sinkToPxl)
-//{
-//	double s = 0;
-//
-//	for (size_t i = sinkToPxl.size() - 1; i-- > 0; )  //(size_t i = sinkToPxl.size() - 1; i >= 0; i--) i=0 included; Caution size_t is unsigned type
-//	{
-//		Point pxl = sinkToPxl[i];
-//
-//		s += pendingSumW(p, pxl, img, leftW, upleftW, upW, uprightW);
-//
-//		if ((pxl.y <= p.y - 1) && (pxl.x < p.x - 1))  // pixels are added to sourceToPxl in increasing col/row order 
-//
-//			break;
-//	}
-//
-//	return s;
-//}
-
-// sum of weights of pending edges for source in current graph (pixel p not simplified)
-//static inline double getSourcePendingSumW(const Point p, const Mat& img, const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW, const std::vector<Point>& sourceToPxl)
-//{
-//	double s = 0;
-//
-//	//for (int i = sourceToPxl.size() - 1; i >= 0; i--)
-//	for (size_t i = sourceToPxl.size() - 1; i-- > 0; ) // i=0 included; Caution size_t is unsigned type
-//	{
-//		Point pxl = sourceToPxl[i];
-//
-//		s += pendingSumW(p, pxl, img, leftW, upleftW, upW, uprightW);
-//
-//		if ((pxl.y <= p.y - 1) && (pxl.x < p.x - 1))  // pixels are added to sourceToPxl in increasing col/row order 
-//
-//			break;
-//	}
-//
-//	return s;
-//}
-
-
-
-// Init matrix sigmaW of total weight for pixels in non reduced graph. Terminal weights are included.
-//static void initSigmaW(const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, Mat& sigmaW, 
-//	                       const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW, double lambda)
-//{
-//	Point p;
-//	
-//	for (p.y = 0; p.y < img.rows; p.y++)
-//	{
-//		for (p.x = 0; p.x < img.cols; p.x++)
-//		{   
-//			double s = 0;
-//			s += leftW.at<double>(p.y, p.x);
-//			s += upleftW.at<double>(p.y, p.x);
-//			s += upW.at<double>(p.y, p.x);
-//			s += uprightW.at<double>(p.y, p.x);
-//
-//			if (p.x < img.cols-1)
-//				s += leftW.at<double>(p.y, p.x+1);
-//			if (p.x < img.cols - 1 && p.y < img.rows-1)
-//				s += upleftW.at<double>(p.y+1, p.x+1);
-//			if (p.y < img.rows - 1)
-//				s += upW.at<double>(p.y + 1, p.x );
-//			if (p.x > 0 && p.y < img.rows - 1)
-//				s += uprightW.at<double>(p.y + 1, p.x-1);
-//
-//
-//			double fromSource, toSink;
-//			Vec3b color = img.at<Vec3b>(p.y, p.x);
-//
-//			if (mask.at<uchar>(p.y, p.x) == GC_PR_BGD || mask.at<uchar>(p.y, p.x) == GC_PR_FGD)
-//			{
-//				fromSource = -log(bgdGMM(color));
-//				toSink = -log(fgdGMM(color));
-//			}
-//			else if (mask.at<uchar>(p) == GC_BGD)
-//			{
-//				fromSource = 0;
-//				toSink = lambda;
-//			}
-//			else // GC_FGD
-//			{
-//				fromSource = lambda;
-//				toSink = 0;
-//			}
-//
-//			sigmaW.at<double>(p.y, p.x) = s+fromSource+toSink;  
-//		}
-//
-//	}
-//}
-
-// compute sum of weights for all edges adjacent to node vtx[i], including
-// pending (after p) edges.
-/*static inline double slimSumW(const Mat& img, const int i, const Point p, GCGraph<double>& graph, 
-	                            const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW,
-								const Mat_<Point>& Vtx2pxl)
-{
-	double s = graph.sumW(i); // sum of weights for edges adjacent to vtx[i], including source and sink
-
-	// add weights of pending edges
-	Point pxl = graph.getFirstP(i);  
-	for (Point pxl = graph.getFirstP(i); pxl != Point(-1, -1); pxl = Vtx2pxl.at<Point>(p))
-
-		s += pendingSumW(p, pxl, img, leftW, upleftW, upW, uprightW);
-
-	return s;
-	//{
-	//	if ((pxl.x == p.x - 1) && (pxl.y == p.y-1))  // up-left neighbor pf p 
-	//		s += upleftW.at<double>(p);
-
-	//	if (((pxl.y == p.y) && (pxl.x < p.x)) || ((pxl.y == p.y - 1) && (pxl.x>=p.x)))  // border pixel
-	//	{
-	//		if (pxl.x == p.x - 1) 
-	//			s += leftW.at<double>(Point(pxl.x + 1, pxl.y));
-	//		
-	//		//if (pxl.y == p.y -1)
-	//		//	s += upW.at<double>(Point(pxl.x, pxl.y+1));
-
-	//		if (pxl.y < img.rows - 1)
-	//		{
-	//			s += upW.at<double>(Point(pxl.x, pxl.y + 1));  
-
-	//			if ((pxl.x > 0) && (pxl.x != p.x))
-	//			//if (pxl.x > 0) 
-	//				s += uprightW.at<double>(Point(pxl.x - 1, pxl.y + 1));
-
-	//			if (pxl.x < img.cols - 1)
-	//				s += upleftW.at<double>(Point(pxl.x + 1, pxl.y + 1));
-	//		}
-	//	}
-	//}
-	//return s;
-}*/
-
-//#define BV_NO_VTX_FOUND -10
-
-// search for first  node  to which pixel p can be joined
-// return node index (negative values GC_JNT_BGD or GC_JNT_FGD for terminal nodes) or BV_NO_VTX_FOUND
-/*
-static inline int searchJoin(const Point p, const Mat& img, const Mat& sigmaW, const Mat& pxl2Vtx, 
-	                  const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW, 
-					  GCGraph<double>& graph, const Mat_<Point>& Vtx2pxl, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM,
-					  const double lambda, const std::vector<Point>& sinkToPxl, const std::vector<Point>& sourceToPxl)
-{   
-	int nghbrVtx[4];  // indices of neighbor vertices (order left, upleft, up, upright)
-	double w[4];
-	double s[4];
-	for (int i = 0; i < 4; i++)
-	{
-		nghbrVtx[i] = -10; // no neighbor
-		w[i] = 0;
-		//s[i] = 0;
-	}
-
-	if (p.x > 0)
-	{
-		nghbrVtx[0] = pxl2Vtx.at<int>(p.y, p.x - 1);
-		w[0] = leftW.at<double>(p);
-	}
-	if ((p.x > 0) && (p.y > 0))
-	{
-		nghbrVtx[1] = pxl2Vtx.at<int>(p.y - 1, p.x - 1);
-		w[1] = upleftW.at<double>(p);
-	}
-	if (p.y > 0)
-	{
-		nghbrVtx[2] = pxl2Vtx.at<int>(p.y - 1, p.x);
-		w[2] = upW.at<double>(p);
-	}
-	if ((p.y > 0) && (p.x < img.cols - 1))
-	{
-		nghbrVtx[3] = pxl2Vtx.at<int>(p.y - 1, p.x + 1);
-		w[3] = uprightW.at<double>(p);
-	}
-
-	// calculate weight of edge (p, neigbor) 
-	double ws = getSinkW(p, img, mask, bgdGMM, fgdGMM, lambda);
-	double wt = getSourceW(p, img, mask, bgdGMM, fgdGMM, lambda);
-	for (int i = 0; i < 4; i++)
-	{
-		s[i] = w[i];
-		for (int j = 0; j < i; j++)
-			if (nghbrVtx[i] == nghbrVtx[j])
-			{
-				s[i] += w[j];
-				s[j] += w[i];
-			}
-		if (nghbrVtx[i] == GC_JNT_BGD)
-			s[i] += ws; // getSinkW(p, img, mask, bgdGMM, fgdGMM, lambda);
-		if (nghbrVtx[i] == GC_JNT_FGD)
-			s[i] += wt; // getSourceW(p, img, mask, bgdGMM, fgdGMM, lambda);
-	}
-
-	//if (getSinkW(p, img, mask, bgdGMM, fgdGMM, lambda) > 0.5 * sigmaW.at<double>(p))
-	if (ws > 0.5 * sigmaW.at<double>(p))
-		return GC_JNT_BGD;
-	//if (getSinkW(p, img, mask, bgdGMM, fgdGMM, lambda) > 0.5 * (graph.sink_sigmaW + getSinkPendingSumW(p, img, leftW, upleftW, upW, uprightW, sinkToPxl)))
-	//	return GC_JNT_BGD; unsafe as sink sum of weights should include terminal weights for all graph, and useless !!!
-	if (wt > 0.5 * sigmaW.at<double>(p))
-		return GC_JNT_FGD;
-	//if (getSourceW(p, img, mask, bgdGMM, fgdGMM, lambda) > 0.5 * (graph.source_sigmaW + getSourcePendingSumW(p, img, leftW, upleftW, upW, uprightW, sinkToPxl)))
-	//	return GC_JNT_FGD; unsafe and useless
-
-
-	// search for first joinable neighbor
-	for (int i = 0; i < 4; i++)
-	{
-		int cn = nghbrVtx[i];
-		if (cn == -10)
-			continue;
-
-		// first condition for simple edge
-		if (s[i] > 0.5 * sigmaW.at<double>(p))
-			 return cn;
-
-		// dual condition
-		if (cn >= 0)
-		{
-			if (s[i] > 0.5 * slimSumW(img, cn, p, graph, leftW, upleftW, upW, uprightW, Vtx2pxl))
-				return cn;
-		}
-		else // neighbor is joined to terminal
-			if (cn == GC_JNT_BGD)
-			{
-				if (ws > 0.5*(graph.sink_sigmaW + getSinkPendingSumW(p, img, leftW, upleftW, upW, uprightW, sinkToPxl)))
-					return cn;
-			}
-			else
-			{
-				if (wt > 0.5*(graph.source_sigmaW + getSourcePendingSumW(p, img, leftW, upleftW, upW, uprightW, sourceToPxl)))
-					return cn;
-			}
-	}
-	return BV_NO_VTX_FOUND;
-}
-*/	
-	
-// optimized version of ConstructGCGraph. 
-// Author BV
-// 
-
-#define h_split 8
-#define v_split 8
-#define n_thread h_split*v_split
+#define QT_HEIGHT 3
+#define r_split 1<<QT_HEIGHT
+#define r_count r_split*r_split
 
 #include <mutex>
-//#include <condition_variable>
 
 std::mutex m;
-//std::condition_variable c_v;
 
 int current_region = 0;
+
 
 static void worker(GCGraph<double> * graph, int l, double * result)
 {
@@ -772,34 +461,48 @@ static void worker(GCGraph<double> * graph, int l, double * result)
 	for (;;)
 	{
 		std::unique_lock<std::mutex> lk(m);
-		//c_v.wait(lk, []{return 0; });
 		region=(current_region++)<<(l);
 		lk.unlock();
-		//c_v.notify_one();
-		if (region >= n_thread )
+		if (region >= r_count)
 			break;
-		graph->maxFlow(region, 255<<(l), result+region);
+		result[region]=graph->maxFlow(region, 255<<(l));
 	}
 }
 
-static int ** quadtree(int lv)
+/* index from 0 to 4**lv -1 the nodes of a quadtree of height lv.
+The children of a node differ only by their 2 rightmost bits. By masking these 2 bits 
+we can group nodes having a common parent. Equivalently, if we split recursively a 2-D grid into 4 regions and
+number the regions according to this values, the same masking method will group adjacent regions.
+
+For example, lv=3 gives the following indexes and index&60 groups neigbor regions 4 by 4:
+
+ 0 1 4 5 16 17 20 21
+ 2 3 6 7 18 19 22 23
+ 8 9 12 13 24 25 28 29
+ 10 11 14 15 26 27 30 31
+ 32 33 36 37 48 49 52 53
+ 34 35 38 39 50 51 54 55
+ 40 41 44 45 56 57 60 61
+ 42 43 46 47 58 59 62 63
+
+*/
+
+
+static void quadtree(const int lv, std::vector<std::vector<int>>& tr)
 {
-	int** tr = new int*[lv];
-	for (int i = 0; i < lv; ++i)
-		tr[i] = new int[lv];
-	//int * tr = new int[lv, lv];
-	if (lv == 1)
+	if (lv == 0)
 		tr[0][0] = 0;
 	else
 	{
-		int ** t = quadtree(lv / 2);
-		for (int i = 0; i < lv; i++)
-			for (int j = 0; j < lv;j++)
-			     tr[i][j] = t[i / 2][j/2] * 4 + (i % 2)*2 + j%2;
-		delete[] t;
+		int s = pow(2, lv - 1), s1=2*s;
+		std::vector<std::vector<int>> t(s, std::vector<int>(s));
+		quadtree(lv - 1, t);
+		for (int i = 0; i < s1; i++)
+			for (int j = 0; j < s1; j++)
+			     tr[i][j] = t[i / 2][j / 2] * 4 + (i % 2) * 2 + j % 2;
 	}
-	return tr;
 }
+
 
 static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, double lambda,
                        const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW,
@@ -808,22 +511,23 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
     int vtxCount = img.cols*img.rows,
         edgeCount = 2*(4*img.cols*img.rows - 3*(img.cols + img.rows) + 2);
 
-	int h_reg = (int)img.cols / h_split+1, v_reg = (int)img.rows / v_split +1;
+	int h_size = img.cols / r_split + 1, v_size = img.rows / r_split + 1;
 	
     graph.create(vtxCount, edgeCount);
     Point p;
 	int vtxIdx;
-	//int count = 0;
 
-	//Mat_<Point> Vtx2pxl(img.rows, img.cols); // lists of pixels joined to vertices
-	//std::vector<Point> sinkToPxl, sourceToPxl; // lists of pixels joined to terminal nodes
-	//Mat_<double> sigmaW(img.rows, img.cols, CV_64FC1); 
+	std::vector<std::vector<int>> r_index(r_split, std::vector<int>(r_split));
 
-	//Vtx2pxl = Point(-1, -1);
 
-	//initSigmaW(img, mask, bgdGMM, fgdGMM, sigmaW, leftW, upleftW, upW, uprightW, lambda);  // not needed if searchjoin() is not called
+	quadtree(QT_HEIGHT, r_index);
 
-	int ** region = quadtree(h_split);
+	for (int i = 0; i < r_split;i++)
+	{
+		for (int j = 0; j < r_split; j++)
+			printf("%d ", r_index[i][j]);
+			printf("\n");
+	}
 
     for( p.y = 0; p.y < img.rows; p.y++ )
     {
@@ -838,7 +542,7 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
             if( mask.at<uchar>(p) == GC_PR_BGD || mask.at<uchar>(p) == GC_PR_FGD )
             {
 				//vtxIdx = graph.addVtx(((int)p.y / v_reg)*h_split + ((int)p.x / h_reg));
-				vtxIdx = graph.addVtx(region[p.y / v_reg][p.x / h_reg]);
+				vtxIdx = graph.addVtx(r_index[p.y / v_size][p.x / h_size]);
 				pxl2Vtx.at<int>(p) = vtxIdx;
 				//graph.setFirstP(vtxIdx, p);  // first and last pixel
 				
@@ -961,8 +665,6 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
             }
         }
     }
-	
-	//printf("joinable vtx found %d\n", count);
 }
 
 #include <thread>
@@ -970,61 +672,33 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 //  Slim version of Estimate segmentation using MaxFlow algorithm
 static double estimateSegmentation_slim( GCGraph<double>& graph, Mat& mask, const Mat& ptx2Vtx )
 {   
-	clock_t tStart, tEnd;
-	double result[n_thread];
-	tStart = clock();
+	double result[r_count];
+
 	std::vector<std::thread> pool;
 	
 	double flow = 0;
 	current_region = 0;
-	for (int r = 0; r < 8; r++)
-		//pool.push_back(std::thread (memfunc, &graph, r, (&result[0])+r));
-		pool.push_back(std::thread(worker, &graph, 0, &result[0]));
 
-	for (auto& t : pool)
-		t.join();
+	//const int n_thread = 8;
+	int n_thread = std::thread::hardware_concurrency();
 
-	for (int i = 0; i < n_thread; i++)
-		flow += result[i];
-	
-	pool.clear();
-	current_region = 0;
 
-	for (int r = 0; r < 8; r++)
-		//pool.push_back(std::thread (memfunc, &graph, r, (&result[0])+r));
-		pool.push_back(std::thread(worker, &graph, 1, &result[0]));
+	for (int lv = 0; lv < 1; lv++)
+	{
+		for (int j = 0; j < n_thread; j++)
+			pool.push_back(std::thread(worker, &graph, lv, &result[0]));
 
-	for (auto& t : pool)
-		t.join();
+		for (auto& t : pool)
+			t.join();
 
-	for (int i = 0; (i<<1) < n_thread; i++)
-		flow += result[i<<1];
+		for (int i = 0; (i<<lv) < r_count; i++)
+			flow += result[i<<lv];
 
-	
-	pool.clear();
-	current_region = 0;
+		pool.clear();
+		current_region = 0;
+	}
 
-	for (int r = 0; r < 8; r++)
-		//pool.push_back(std::thread (memfunc, &graph, r, (&result[0])+r));
-		pool.push_back(std::thread(worker, &graph, 2, &result[0]));
-
-	for (auto& t : pool)
-		t.join();
-
-	for (int i = 0; (i<<2) < n_thread; i++)
-		flow += result[i<<2];
-
-	tEnd = clock();
-	printf("maxflow slim time par. phase%.2f\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
-	
-	tStart = clock();
-	
     flow +=graph.maxFlow();
-
-	tEnd = clock();
-	//printf("maxflow slim time seq. phase %.2f\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
-	//printf("Slim flow: %f\n", flow + graph.stotW);
-	//printf("Slim stotW: %f\n", graph.stotW);
 
     Point p;
     for( p.y = 0; p.y < mask.rows; p.y++ )
@@ -1037,12 +711,10 @@ static double estimateSegmentation_slim( GCGraph<double>& graph, Mat& mask, cons
 				if (v == GC_JNT_BGD )
 				{
 					mask.at<uchar>(p) = GC_PR_BGD; //GC_PR_BGD;
-					//continue;
 				}
 				else if (v == GC_JNT_FGD )
 				{
 					mask.at<uchar>(p) = GC_PR_FGD; // GC_PR_BGD;
-					//continue;
 				}
 				else if (graph.inSourceSegment(v)) // p.y*mask.cols+p.x /*vertex index*/ ) )
                     mask.at<uchar>(p) = GC_PR_FGD;
@@ -1164,8 +836,10 @@ static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM,
 	int vtxCount = img.cols*img.rows,
 		edgeCount = 2 * (4 * img.cols*img.rows - 3 * (img.cols + img.rows) + 2);
 
-	int h_reg = (int)img.cols / h_split+1, v_reg = (int)img.rows / v_split+1;
-	int ** region = quadtree(h_split);
+	int h_size = (int)img.cols / r_split+1, v_size = (int)img.rows /r_split+1;
+	//int ** region = quadtree(r_split);
+	std::vector<std::vector<int>> r_index(r_split, std::vector<int>(r_split));
+	quadtree(QT_HEIGHT, r_index);
 	graph.create(vtxCount, edgeCount);
 	Point p;
 	//int count = 0;
@@ -1175,7 +849,7 @@ static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM,
 		{
 			// add node
 			//int vtxIdx = graph.addVtx(((int)p.y / v_reg)*h_split + ((int)p.x / h_reg));
-			int vtxIdx = graph.addVtx(region[p.y / v_reg][p.x / h_reg]);
+			int vtxIdx = graph.addVtx(r_index[p.y / v_size][p.x / h_size]);
 			Vec3b color = img.at<Vec3b>(p);
 
 			// set t-weights
@@ -1219,9 +893,6 @@ static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM,
 				double w = uprightW.at<double>(p);
 				graph.addEdges(vtxIdx, vtxIdx - img.cols + 1, w, w);
 			}
-			//double flow = graph.maxFlow();
-			//printf("count=%d ", count++);
-			//printf("flow: %.2f\n", flow);
 		}
 	}
 }
@@ -1231,63 +902,31 @@ Estimate segmentation using MaxFlow algorithm
 */
 static double estimateSegmentation(GCGraph<double>& graph, Mat& mask)
 {
-	clock_t tStart, tEnd;
-	
-
-	//***********
 	double flow = 0;
 	current_region = 0;
 	
-	tStart = clock();
-	double result[n_thread];
+	double result[r_count];
 	std::vector<std::thread> pool;
-	//double (GCGraph<double>::*memfunc)(int r, int mask, double * result_ptr) = &GCGraph<double>::maxFlow;
-	for (int r = 0; r < 8; r++)
-		//pool.push_back(std::thread(memfunc, &graph, r, region_mask, (&result[0]) + r));
-		pool.push_back(std::thread(worker, &graph, 0, &result[0]));
 
-	for (auto& t : pool)
-		t.join();
-	for (int i = 0; i < n_thread; i++)
-		flow += result[i];
+	//const int n_thread = 8;
+	int n_thread = std::thread::hardware_concurrency();
 
-	pool.clear();
-	current_region = 0;
+	for (int lv = 0; lv < 1; lv++)
+	{
+		for (int j = 0; j < n_thread; j++)
+			pool.push_back(std::thread(worker, &graph, lv, &result[0]));
 
-	for (int r = 0; r < 8; r++)
-		//pool.push_back(std::thread (memfunc, &graph, r, (&result[0])+r));
-		pool.push_back(std::thread(worker, &graph, 1, &result[0]));
+		for (auto& t : pool)
+			t.join();
 
-	for (auto& t : pool)
-		t.join();
+		for (int i = 0; (i<<lv )< r_count; i++)
+			flow += result[i << lv];
 
-	for (int i = 0; (i<<1) < n_thread; i++)
-		flow += result[i<<1];
-	
-	pool.clear();
-	current_region = 0;
-
-	for (int r = 0; r < 8; r++)
-		//pool.push_back(std::thread (memfunc, &graph, r, (&result[0])+r));
-		pool.push_back(std::thread(worker, &graph, 2, &result[0]));
-
-	for (auto& t : pool)
-		t.join();
-
-	for (int i = 0; (i<<2) < n_thread; i++)
-		flow += result[i<<2];
-	
-
-	tEnd = clock();
-	printf("maxflow time par phase %.2f\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
-	
-	tStart = clock();
+		pool.clear();
+		current_region = 0;
+	}
 
 	flow +=graph.maxFlow();
-
-	tEnd = clock();
-	//printf("maxflow time seq phase %.2f\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
-	//printf("standard Flow: %f\n", flow);
 
 	Point p;
 	for (p.y = 0; p.y < mask.rows; p.y++)
