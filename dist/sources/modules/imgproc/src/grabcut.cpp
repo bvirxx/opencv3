@@ -39,8 +39,6 @@
 //
 //M*/
 
-// https://www.tnt.uni-hannover.de/papers/data/883/paper_EMMCVPR_11.pdf
-
 #include "precomp.hpp"
 #include "gcgraph.hpp"
 #include <limits>
@@ -454,52 +452,18 @@ std::mutex m;
 int current_region = 0;
 
 
-static void worker(GCGraph<double> * graph, int l, double * result)
+static void worker(GCGraph<double> * graph, double * result)
 {
 	int region;
 
 	for (;;)
 	{
 		std::unique_lock<std::mutex> lk(m);
-		region=(current_region++)<<(l);
+		region = current_region++;
 		lk.unlock();
 		if (region >= r_count)
 			break;
-		result[region]=graph->maxFlow(region, 255<<(l));
-	}
-}
-
-/* index from 0 to 4**lv -1 the nodes of a quadtree of height lv.
-The children of a node differ only by their 2 rightmost bits. By masking these 2 bits 
-we can group nodes having a common parent. Equivalently, if we split recursively a 2-D grid into 4 regions and
-number the regions according to this values, the same masking method will group adjacent regions.
-
-For example, lv=3 gives the following indexes and index&60 groups neigbor regions 4 by 4:
-
- 0 1 4 5 16 17 20 21
- 2 3 6 7 18 19 22 23
- 8 9 12 13 24 25 28 29
- 10 11 14 15 26 27 30 31
- 32 33 36 37 48 49 52 53
- 34 35 38 39 50 51 54 55
- 40 41 44 45 56 57 60 61
- 42 43 46 47 58 59 62 63
-
-*/
-
-
-static void quadtree(const int lv, std::vector<std::vector<int>>& tr)
-{
-	if (lv == 0)
-		tr[0][0] = 0;
-	else
-	{
-		int s = pow(2, lv - 1), s1=2*s;
-		std::vector<std::vector<int>> t(s, std::vector<int>(s));
-		quadtree(lv - 1, t);
-		for (int i = 0; i < s1; i++)
-			for (int j = 0; j < s1; j++)
-			     tr[i][j] = t[i / 2][j / 2] * 4 + (i % 2) * 2 + j % 2;
+		result[region]=graph->maxFlow(region);
 	}
 }
 
@@ -519,15 +483,9 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 
 	std::vector<std::vector<int>> r_index(r_split, std::vector<int>(r_split));
 
-
-	quadtree(QT_HEIGHT, r_index);
-
-	for (int i = 0; i < r_split;i++)
-	{
+	for (int i = 0; i < r_split; i++)
 		for (int j = 0; j < r_split; j++)
-			printf("%d ", r_index[i][j]);
-			printf("\n");
-	}
+			r_index[i][j] = i*r_split + j;
 
     for( p.y = 0; p.y < img.rows; p.y++ )
     {
@@ -682,21 +640,15 @@ static double estimateSegmentation_slim( GCGraph<double>& graph, Mat& mask, cons
 	//const int n_thread = 8;
 	int n_thread = std::thread::hardware_concurrency();
 
+	for (int j = 0; j < n_thread; j++)
+		pool.push_back(std::thread(worker, &graph, &result[0]));
 
-	for (int lv = 0; lv < 1; lv++)
-	{
-		for (int j = 0; j < n_thread; j++)
-			pool.push_back(std::thread(worker, &graph, lv, &result[0]));
+	for (auto& t : pool)
+		t.join();
 
-		for (auto& t : pool)
-			t.join();
+	for (int i = 0; i < r_count; i++)
+		flow += result[i];
 
-		for (int i = 0; (i<<lv) < r_count; i++)
-			flow += result[i<<lv];
-
-		pool.clear();
-		current_region = 0;
-	}
 
     flow +=graph.maxFlow();
 
@@ -837,9 +789,11 @@ static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM,
 		edgeCount = 2 * (4 * img.cols*img.rows - 3 * (img.cols + img.rows) + 2);
 
 	int h_size = (int)img.cols / r_split+1, v_size = (int)img.rows /r_split+1;
-	//int ** region = quadtree(r_split);
+	
 	std::vector<std::vector<int>> r_index(r_split, std::vector<int>(r_split));
-	quadtree(QT_HEIGHT, r_index);
+	for (int i = 0; i < r_split; i++)
+		for (int j = 0; j < r_split; j++)
+			r_index[i][j] = i*r_split + j;
 	graph.create(vtxCount, edgeCount);
 	Point p;
 	//int count = 0;
@@ -911,20 +865,15 @@ static double estimateSegmentation(GCGraph<double>& graph, Mat& mask)
 	//const int n_thread = 8;
 	int n_thread = std::thread::hardware_concurrency();
 
-	for (int lv = 0; lv < 1; lv++)
-	{
-		for (int j = 0; j < n_thread; j++)
-			pool.push_back(std::thread(worker, &graph, lv, &result[0]));
+	for (int j = 0; j < n_thread; j++)
+		pool.push_back(std::thread(worker, &graph, &result[0]));
 
-		for (auto& t : pool)
-			t.join();
+	for (auto& t : pool)
+		t.join();
 
-		for (int i = 0; (i<<lv )< r_count; i++)
-			flow += result[i << lv];
+		for (int i = 0; i< r_count; i++)
+			flow += result[i];
 
-		pool.clear();
-		current_region = 0;
-	}
 
 	flow +=graph.maxFlow();
 
