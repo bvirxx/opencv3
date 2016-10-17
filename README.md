@@ -14,7 +14,11 @@ Tests with a 24 M pixels image :
      estimateSegmentation()                       48 s
      parallel estimateSegmentation() (8 threads)   2,9 s
      
-Files 
+History
+
+      Last version is a test-only version
+
+files
 
      imgproc.hpp
      gcgraph.hpp
