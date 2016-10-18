@@ -354,7 +354,7 @@ enum GrabCutTermClasses {
 
 #define jbg(p) ( (p) == GC_JNT_BGD )
 #define jfg(p) ( (p) == GC_JNT_FGD )
-// end of addition. BV
+//end of addition. BV
 
 //! GrabCut algorithm flags
 enum GrabCutModes {
