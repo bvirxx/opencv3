@@ -26,7 +26,7 @@ History
 
 files
 
- imgproc.hpp
+ dist/sources/modules/imgproc/include/opencv2/imgproc.hpp
  
  dist/sources/modules/imgproc/src/gcgraph.hpp
  
