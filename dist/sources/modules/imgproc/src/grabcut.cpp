@@ -458,7 +458,7 @@ std::mutex m;
 int current_region = 0;
 
 /*
- Thread for parallel maxFlow. 
+ Thread for parallel computation of maxFlow. 
  The current position in the queue of regions 
  is defined by the shared index current_region. 
 */
@@ -477,7 +477,7 @@ static void worker(GCGraph<double> * graph, double * result)
 
 /*
  Construct partially reduced GCGraph. 
- Pixels marked as BG or FG are merged with terminal nodes. the parameter pxl2Vtx 
+ Pixels marked as BG or FG are merged with terminal nodes. The Mat pxl2Vtx 
  records the index of vertex for each pixel.
  To enable parallel computation of max Flow, the image is partitionned into
  regions, and each vertex is indexed by the corresponding region number.
@@ -592,14 +592,13 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
     }
 }
 
-
-//  Slim version of multithreaded estimateSegmentation
+/*
+ Multithreaded estimateSegmentation with reduced graph
+*/
 static double estimateSegmentation_slim( GCGraph<double>& graph, Mat& mask, const Mat& ptx2Vtx )
 {   
-	
 	double flow = 0;
 
-	//const int n_thread = 8;
 	int n_thread = std::thread::hardware_concurrency();
 
 	double result[r_count];
@@ -615,11 +614,11 @@ static double estimateSegmentation_slim( GCGraph<double>& graph, Mat& mask, cons
 	for (auto& t : pool)
 		t.join();
 
-	// sum partial flows
+	// sum of partial flows
 	for (int i = 0; i < r_count; i++)
 		flow += result[i];
 
-	// 
+	// last call on the whole residual graph 
     flow +=graph.maxFlow();
 
     Point p;
@@ -649,14 +648,8 @@ static double estimateSegmentation_slim( GCGraph<double>& graph, Mat& mask, cons
 }
 
 /*
-static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, double lambda,
-	const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW,
-	GCGraph<double>& graph);
-static double estimateSegmentation(GCGraph<double>& graph, Mat& mask);
-*/
-
-/*
-Construct GCGraph
+ Construct non reduced GCGraph. 
+ Vertices are indexed by the region number, for parallel computation of max flow.
 */
 static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM, const GMM& fgdGMM, double lambda,
 	const Mat& leftW, const Mat& upleftW, const Mat& upW, const Mat& uprightW,
@@ -665,12 +658,15 @@ static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM,
 	int vtxCount = img.cols*img.rows,
 		edgeCount = 2 * (4 * img.cols*img.rows - 3 * (img.cols + img.rows) + 2);
 
+	// region numbering
 	int h_size = (int)img.cols / r_split+1, v_size = (int)img.rows /r_split+1;
 	
 	std::vector<std::vector<int>> r_index(r_split, std::vector<int>(r_split));
+
 	for (int i = 0; i < r_split; i++)
 		for (int j = 0; j < r_split; j++)
 			r_index[i][j] = i*r_split + j;
+
 	graph.create(vtxCount, edgeCount);
 	Point p;
 	//int count = 0;
@@ -679,7 +675,6 @@ static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM,
 		for (p.x = 0; p.x < img.cols; p.x++)
 		{
 			// add node
-			//int vtxIdx = graph.addVtx(((int)p.y / v_reg)*h_split + ((int)p.x / h_reg));
 			int vtxIdx = graph.addVtx(r_index[p.y / v_size][p.x / h_size]);
 			Vec3b color = img.at<Vec3b>(p);
 
@@ -689,7 +684,6 @@ static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM,
 			{
 				fromSource = -log(bgdGMM(color));
 				toSink = -log(fgdGMM(color));
-				//printf("from source: %.2f color %d %d %d", fromSource, color[0], color[1], color[2]);
 			}
 			else if (mask.at<uchar>(p) == GC_BGD)
 			{
@@ -729,7 +723,7 @@ static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM,
 }
 
 /*
-Estimate segmentation using MaxFlow algorithm
+ Multithreaded estimateSegmentation with non reduced graph
 */
 static double estimateSegmentation(GCGraph<double>& graph, Mat& mask)
 {
@@ -739,19 +733,20 @@ static double estimateSegmentation(GCGraph<double>& graph, Mat& mask)
 	double result[r_count];
 	std::vector<std::thread> pool;
 
-	//const int n_thread = 8;
 	int n_thread = std::thread::hardware_concurrency();
 
+	// launch parallel computations of partial max flows
 	for (int j = 0; j < n_thread; j++)
 		pool.push_back(std::thread(worker, &graph, &result[0]));
 
 	for (auto& t : pool)
 		t.join();
 
-		for (int i = 0; i< r_count; i++)
-			flow += result[i];
+	// sum of partial flows
+	for (int i = 0; i< r_count; i++)
+		flow += result[i];
 
-
+	// last call on the whole residual graph
 	flow +=graph.maxFlow();
 
 	Point p;
@@ -770,7 +765,10 @@ static double estimateSegmentation(GCGraph<double>& graph, Mat& mask)
 	}
 	return flow;
 }
-
+/*
+ Multithreaded version of grabCut
+ Non reduced graph
+*/
 void cv::grabCut(InputArray _img, InputOutputArray _mask, Rect rect,
 	InputOutputArray _bgdModel, InputOutputArray _fgdModel,
 	int iterCount, int mode)
@@ -830,7 +828,8 @@ void cv::grabCut(InputArray _img, InputOutputArray _mask, Rect rect,
 }
 
 /*
-Slim version of Grabcut algorithm
+ Multithreded version of grabCut
+ Reduced graph
 */
 void cv::grabCut_slim(InputArray _img, InputOutputArray _mask, Rect rect,
 	InputOutputArray _bgdModel, InputOutputArray _fgdModel,
@@ -893,8 +892,8 @@ void cv::grabCut_slim(InputArray _img, InputOutputArray _mask, Rect rect,
 		printf("*************construcGCGraph slim: %.2fs\n", (double)(tEnd - tStart) / CLOCKS_PER_SEC);
 
 		double flow;
-		/******************************************TODO remove*/
 
+#ifdef TEST_Version
 		GCGraph<double> graph2;
 		constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph2);
 		tStart = clock();
@@ -906,8 +905,7 @@ void cv::grabCut_slim(InputArray _img, InputOutputArray _mask, Rect rect,
 		flow = estimateSegmentation(graph2, mask2);
 		tEnd = clock();
 		printf("**************test standard flow: %f estimateSegmentation time %.2f\n", flow, (double)(tEnd - tStart) / CLOCKS_PER_SEC);
-
-		/*************************************************/
+#endif
 
 		tStart = clock();
 		flow = graph.maxFlow();
@@ -917,12 +915,6 @@ void cv::grabCut_slim(InputArray _img, InputOutputArray _mask, Rect rect,
 		flow = estimateSegmentation_slim(graph, mask, pxl2Vtx);
 		tEnd = clock();
 		printf("**************slim flow %f estimateSegmentation slim time %.2fs\n", flow, (double)(tEnd - tStart) / CLOCKS_PER_SEC);
-
-		//graph.searchSimpleEdges(0, 0, false);  // caution : MaxFlow modifies weights, so false result
-
-		//graph2.searchSimpleEdges(0, 0, false);  // TODO : remove
 	}
 }
 
-
-/*#endif */
