@@ -4,7 +4,7 @@ Fast image segmentation using MaxFlow/MinCut Boykov-Kolmogorov algorithm
 
 Opencv grabcut algorithim is pretty good, but slow for large images. One bottleneck is the  function
 GCGraph::MaxFlow, which implements the max-flow/min-cut Boykov-Kolmogorov algorithm. 
-We implement a simple pareallel version of this algorithm, providing a significant speedup.
+We propose a simple parallel version of this algorithm, providing a significant speedup.
 
    - We extend the class GCGraph (cf. file gcgraph.hpp) with an overloaded function maxFlow(int r). It computes
    the max flow corresponding to a subgraph of the initial graph. 
