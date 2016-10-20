@@ -20,10 +20,8 @@ Tests with a 24 M pixel image :
 
      maxFlow()                                      48 s           grabcut()                63 s
      
-     parallel maxFlow() (64 regions, 8 threads)      2,9 s         parallel grabcut()       18 s
+     parallel maxFlow() (64 regions, 8 threads)     29 s           parallel grabcut()       45 s
 
- 
- Superlinear speedup in maxFlow() is achieved by constructing shorter paths first.
  
 History
 
@@ -38,6 +36,7 @@ files
  dist/sources/modules/imgproc/src/gcgraph.hpp
  
  dist/sources/modules/imgproc/src/grabcut.cpp
+
 
  
  
