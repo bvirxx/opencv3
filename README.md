@@ -26,6 +26,8 @@ Tests with a 24 M pixel image :
  
 History
 
+  Most recent branch is workers_no_quadtree
+  
   Last version is a test-only version
 
 files
