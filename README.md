@@ -13,7 +13,7 @@ We propose a simple parallel version of this algorithm, providing a significant 
     on a paper of Scheuermann and Rosenhahn : https://pdfs.semanticscholar.org/92df/9a469fe878f55cd0ef3d55477a5f787c47ba.pdf
     
    - We implement a mulithreaded version of the function estimateSegmentation() (cf. file grabcut.cpp), 
-    using our overloaded function maxFlow(). Threads run on disjoint subgraphs, corresponding to disjoint subregions of the image, thus       no synchronization is needed. Partial flows are added. 
+    using our overloaded function maxFlow(). Threads run on disjoint subgraphs, corresponding to disjoint subregions of the image, thus       no synchronization is needed. The residual graph is updated and the partial flows are added. 
     A last call to maxFlow() on the whole residual graph achieves the segmentation.
     
 Tests with a 24 M pixel image :
