@@ -447,7 +447,7 @@ static void learnGMMs( const Mat& img, const Mat& mask, const Mat& compIdxs, GMM
  multithread stuff 
 */
 
-#define r_split 8
+#define r_split 4
 
 // regions in image
 #define r_count r_split*r_split
@@ -893,28 +893,37 @@ void cv::grabCut_slim(InputArray _img, InputOutputArray _mask, Rect rect,
 
 		double flow;
 
-#ifdef TEST_Version
-		GCGraph<double> graph2;
+#define TEST_VERSION
+
+#ifdef TEST_VERSION
+		GCGraph<double> graph2, graph3;
 		constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph2);
 		tStart = clock();
 		flow = graph2.maxFlow();
 		tEnd = clock();
 		printf("***************seq. test standard flow: %f seq maxFlow time %.2f\n", flow, (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+		constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph3);
 		Mat mask2 = mask.clone();
 		tStart = clock();
-		flow = estimateSegmentation(graph2, mask2);
+		flow = estimateSegmentation(graph3, mask2);
 		tEnd = clock();
 		printf("**************test standard flow: %f estimateSegmentation time %.2f\n", flow, (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+		for (int i = 0; i < img.cols; i++)
+			for (int j = 0; j < img.rows; j++)
+				mask2.at<uchar>(j, i) = mask2.at<uchar>(j, i) << 2;
 #endif
 
 		tStart = clock();
 		flow = graph.maxFlow();
 		tEnd = clock();
 		printf("***************seq. slim flow: %f seq maxFlow slim time %.2f\n", flow, (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+		GCGraph<double> graph4;
+		constructGCGraph_slim(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph4, pxl2Vtx);
 		tStart = clock();
-		flow = estimateSegmentation_slim(graph, mask, pxl2Vtx);
+		flow = estimateSegmentation_slim(graph4, mask, pxl2Vtx);
 		tEnd = clock();
 		printf("**************slim flow %f estimateSegmentation slim time %.2fs\n", flow, (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+		cv::bitwise_or(mask2, mask, mask);
 	}
 }
 
