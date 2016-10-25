@@ -20,7 +20,7 @@ Tests with a 24 M pixel image :
 
      maxFlow()                                      48 s           grabcut()                63 s
      
-     parallel maxFlow() (64 regions, 8 threads)     26 s           parallel grabcut()       43 s
+     parallel maxFlow() (64 regions, 8 threads)     20s           parallel grabcut()        36 s
 
  
 History
