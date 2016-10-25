@@ -50,11 +50,11 @@ public:
 	~GCGraph();
 	void create(unsigned int vtxCount, unsigned int edgeCount);
 	int addVtx();
-	int addVtx(int r);
+	int addVtx(int r, int alt_r);
 	void addEdges(int i, int j, TWeight w, TWeight revw);
 	void addTermWeights(int i, TWeight sourceW, TWeight sinkW);
 	TWeight maxFlow();
-	TWeight maxFlow(int r); // overloaded function used in parallel maxFlow 
+	TWeight maxFlow(int reg, const int reg_mask, const int reg_flag); // overloaded function for parallel maxFlow 
 	inline bool inSourceSegment(int i);
 private:
 	class Vtx
@@ -67,7 +67,7 @@ private:
 		int dist;
 		TWeight weight; 
 		uchar t;
-		int region; // region index 
+		int region[2]; // region index 
 	};
 	class Edge
 	{
@@ -115,11 +115,12 @@ int GCGraph<TWeight>::addVtx()
 }
 
 template <class TWeight>
-int GCGraph<TWeight>::addVtx(int r)
+int GCGraph<TWeight>::addVtx(int r, int alt_r)
 {
 	Vtx v;
 	memset(&v, 0, sizeof(Vtx));
-	v.region = r;
+	v.region[0] = r;
+	v.region[1] = alt_r;
 	vtcs.push_back(v);
 	return (int)vtcs.size() - 1;
 }
@@ -396,14 +397,14 @@ TWeight GCGraph<TWeight>::maxFlow()
 /*
  This overloaded function maxFlow is used in the parallel version of the 
  Boykov-Kolmogoroff algorithm. 
- Graph vertices v are splitted into disjoint regions, using v.region values.
+ Graph vertices v are splitted into disjoint regions.
  Max flow is computed on the subgraph corresponding to a region.
  As subgraphs are disjoint, all the computations can be done in parallel without any synchronization. 
  Addition of the partial flows and a last execution of maxFlow on the entire residual graph
  achieve the computation. 
 */
 template <class TWeight>
-TWeight GCGraph<TWeight>::maxFlow(int r)
+TWeight GCGraph<TWeight>::maxFlow(int reg, const int reg_mask, const int reg_flag)
 {
 	const int TERMINAL = -1, ORPHAN = -2;
 	Vtx stub, *nilNode = &stub, *first = nilNode, *last = nilNode;
@@ -412,15 +413,18 @@ TWeight GCGraph<TWeight>::maxFlow(int r)
 	Vtx *vtxPtr = &vtcs[0];
 	Edge *edgePtr = &edges[0];
 
+	reg = reg & reg_mask;
+	int count = 0;
 	std::vector<Vtx*> orphans;
 
-	TWeight flow = 0;  // we must override graph.flow by a local variable to enable concurrent writings
+	// to enable concurrent writings we override graph.flow with a local variable
+	TWeight flow = 0;
 
 	// initialize the active queue and the graph vertices
 	for (int i = 0; i < (int)vtcs.size(); i++)
 	{
 		Vtx* v = vtxPtr + i;
-		if (v->region != r)
+		if ((v->region[reg_flag] & reg_mask) != reg)
 			continue;
 		v->ts = 0;
 		if (v->weight != 0)
@@ -441,7 +445,7 @@ TWeight GCGraph<TWeight>::maxFlow(int r)
 	// run the search-path -> augment-graph -> restore-trees loop
 	for (;;)
 	{
-		//count++;
+		count++;
 		Vtx* v, *u;
 		int e0 = -1, ei = 0, ej = 0;
 		TWeight minWeight, weight;
@@ -458,7 +462,7 @@ TWeight GCGraph<TWeight>::maxFlow(int r)
 				{
 					if (edgePtr[ei^vt].weight == 0)
 						continue;
-					if ((vtxPtr + edgePtr[ei].dst)->region != r)
+					if (((vtxPtr + edgePtr[ei].dst)->region[reg_flag] & reg_mask) != reg)
 						continue;
 					u = vtxPtr + edgePtr[ei].dst;
 					if (!u->parent)
@@ -511,7 +515,7 @@ TWeight GCGraph<TWeight>::maxFlow(int r)
 				if ((ei = v->parent) < 0)
 					break;
 				weight = edgePtr[ei^k].weight;
-				CV_Assert(v->region == r);   //TODO remove***********************************************
+				CV_Assert((v->region[reg_flag] & reg_mask) == reg);   //TODO remove***********************************************
 				minWeight = MIN(minWeight, weight);
 				CV_Assert(minWeight > 0);
 			}
@@ -538,7 +542,7 @@ TWeight GCGraph<TWeight>::maxFlow(int r)
 					orphans.push_back(v);
 					v->parent = ORPHAN;
 				}
-				CV_Assert(v->region == r);   //TODO remove***********************************************
+				CV_Assert((v->region[reg_flag] & reg_mask) == reg);   //TODO remove***********************************************
 			}
 
 			v->weight = v->weight + minWeight*(1 - k * 2);
@@ -562,7 +566,7 @@ TWeight GCGraph<TWeight>::maxFlow(int r)
 
 			for (ei = v2->first; ei != 0; ei = edgePtr[ei].next)
 			{
-				if ((edgePtr[ei ^ (vt ^ 1)].weight == 0) || ((vtxPtr + edgePtr[ei].dst)->region != r))
+				if ((edgePtr[ei ^ (vt ^ 1)].weight == 0) || (((vtxPtr + edgePtr[ei].dst)->region[reg_flag] & reg_mask) != reg))
 					continue;
 				u = vtxPtr + edgePtr[ei].dst;
 				if (u->t != vt || u->parent == 0)
@@ -619,7 +623,7 @@ TWeight GCGraph<TWeight>::maxFlow(int r)
 			for (ei = v2->first; ei != 0; ei = edgePtr[ei].next)
 			{
 				u = vtxPtr + edgePtr[ei].dst;
-				if (u->region != r)
+				if (((u->region[reg_flag])&reg_mask) != reg)
 					continue;
 				ej = u->parent;
 				if (u->t != vt || !ej)
@@ -633,11 +637,12 @@ TWeight GCGraph<TWeight>::maxFlow(int r)
 				{
 					orphans.push_back(u);
 					u->parent = ORPHAN;
-					CV_Assert(u->region == r);   //TODO remove***********************************************
+					CV_Assert((u->region[reg_flag] & reg_mask) == reg);   //TODO remove***********************************************
 				}
 			}
 		}
 	}
+	//printf("region %d, iter %d\n", r, count);
 	return flow;
 }
 
