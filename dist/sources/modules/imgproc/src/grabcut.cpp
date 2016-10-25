@@ -476,38 +476,6 @@ static void worker(GCGraph<double> * graph, int l, int mask, double * result, in
 	}
 }
 
-/* index from 0 to 4**lv -1 the nodes of a quadtree of height lv.
-The children of a node differ only by their 2 rightmost bits. By masking these 2 bits
-we can group nodes having a common parent. Equivalently, if we split recursively a 2-D grid into 4 regions and
-number the regions according to this values, the same masking method will group adjacent regions.
-
-For example, lv=3 gives the following indexes and index&60 groups neigbor regions 4 by 4:
-
-0 1 4 5 16 17 20 21
-2 3 6 7 18 19 22 23
-8 9 12 13 24 25 28 29
-10 11 14 15 26 27 30 31
-32 33 36 37 48 49 52 53
-34 35 38 39 50 51 54 55
-40 41 44 45 56 57 60 61
-42 43 46 47 58 59 62 63
-*/
-
-
-static void quadtree(const int lv, std::vector<std::vector<int>>& tr)
-{
-	if (lv == 0)
-		tr[0][0] = 0;
-	else
-	{
-		int s = pow(2, lv - 1), s1 = 2 * s;
-		std::vector<std::vector<int>> t(s, std::vector<int>(s));
-		quadtree(lv - 1, t);
-		for (int i = 0; i < s1; i++)
-			for (int j = 0; j < s1; j++)
-				tr[i][j] = t[i / 2][j / 2] * 4 + (i % 2) * 2 + j % 2;
-	}
-}
 
 
 /*
@@ -530,10 +498,10 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 
 	std::vector<std::vector<int>> r_index(r_split, std::vector<int>(r_split));
 
-	quadtree(QT_HEIGHT, r_index);
-	//for (int i = 0; i < r_split; i++)
-	//	for (int j = 0; j < r_split; j++)
-	//		r_index[i][j] = i*r_split + j;
+	//quadtree(QT_HEIGHT, r_index);
+	for (int i = 0; i < r_split; i++)
+		for (int j = 0; j < r_split; j++)
+			r_index[i][j] = i*r_split + j;
 	
     graph.create(vtxCount, edgeCount);
     Point p;
@@ -599,6 +567,9 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 				else
 					if (vtx >= 0)
 						graph.addTermWeights(vtx, (jfg(n) ? w : 0), (jbg(n) ? w : 0));
+					else
+						if (jbg(vtx) != jbg(n))
+							graph.sourceToSinkW += w;
             }
             if( p.x>0 && p.y>0 )
             {
@@ -612,6 +583,9 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 				else // neighbor is terminal
 					if (vtx >= 0)
 						graph.addTermWeights(vtx, (jfg(n) ? w : 0), (jbg(n) ? w : 0));
+					else
+						if (jbg(vtx) != jbg(n))
+							graph.sourceToSinkW += w;
             }
             if( p.y>0 )
             {
@@ -625,6 +599,9 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 				else
 					if (vtx >= 0)
 					    graph.addTermWeights(vtx, (jfg(n) ? w : 0), (jbg(n) ? w : 0));
+					else
+						if (jbg(vtx) != jbg(n))
+							graph.sourceToSinkW += w;
             }
             if( p.x<img.cols-1 && p.y>0 )
             {
@@ -638,6 +615,9 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 				else
 					if (vtx >= 0)
 					    graph.addTermWeights(vtx, (jfg(n) ? w : 0), (jbg(n) ? w : 0));
+					else
+						if (jbg(vtx) != jbg(n))
+							graph.sourceToSinkW += w;
             }
         }
     }
@@ -738,13 +718,10 @@ static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM,
 	
 	std::vector<std::vector<int>> r_index(r_split, std::vector<int>(r_split));
 
-	quadtree(QT_HEIGHT, r_index);
-	/*for (int i = 0; i < r_split; i++)
-	{
+	//quadtree(QT_HEIGHT, r_index);
+	for (int i = 0; i < r_split; i++)
 		for (int j = 0; j < r_split; j++)
-			printf("%d ", r_index[i][j]);
-		printf("\n");
-	}*/
+			r_index[i][j] = i*r_split + j;
 
 	graph.create(vtxCount, edgeCount);
 	Point p;
@@ -980,6 +957,7 @@ void cv::grabCut_slim(InputArray _img, InputOutputArray _mask, Rect rect,
 	for (int i = 0; i < iterCount; i++)
 	{
 		GCGraph<double> graph;
+		Mat mask2 = mask.clone();
 		assignGMMsComponents(img, mask, bgdGMM, fgdGMM, compIdxs);
 		learnGMMs(img, mask, compIdxs, bgdGMM, fgdGMM);
 		tEnd = clock();
@@ -1002,13 +980,13 @@ void cv::grabCut_slim(InputArray _img, InputOutputArray _mask, Rect rect,
 		tStart = clock();
 		flow = graph2.maxFlow();
 		tEnd = clock();
-		printf("***************seq. test standard flow: %f seq maxFlow time %.2f\n", flow, (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+		printf("***************seq. test standard flow: %f seq maxFlow time %.2f\n", flow+graph2.sourceToSinkW, (double)(tEnd - tStart) / CLOCKS_PER_SEC);
 		constructGCGraph(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph3);
-		Mat mask2 = mask.clone();
+		//Mat mask2 = mask.clone();
 		tStart = clock();
 		flow = estimateSegmentation(graph3, mask2);
 		tEnd = clock();
-		printf("**************test standard flow: %f estimateSegmentation time %.2f\n", flow, (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+		printf("**************test standard flow: %f estimateSegmentation time %.2f\n", flow+graph3.sourceToSinkW, (double)(tEnd - tStart) / CLOCKS_PER_SEC);
 		for (int i = 0; i < img.cols; i++)
 			for (int j = 0; j < img.rows; j++)
 				mask2.at<uchar>(j, i) = mask2.at<uchar>(j, i) << 2;
@@ -1017,13 +995,13 @@ void cv::grabCut_slim(InputArray _img, InputOutputArray _mask, Rect rect,
 		tStart = clock();
 		flow = graph.maxFlow();
 		tEnd = clock();
-		printf("***************seq. slim flow: %f seq maxFlow slim time %.2f\n", flow, (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+		printf("***************seq. slim flow: %f seq maxFlow slim time %.2f\n", flow+graph.sourceToSinkW, (double)(tEnd - tStart) / CLOCKS_PER_SEC);
 		GCGraph<double> graph4;
 		constructGCGraph_slim(img, mask, bgdGMM, fgdGMM, lambda, leftW, upleftW, upW, uprightW, graph4, pxl2Vtx);
 		tStart = clock();
 		flow = estimateSegmentation_slim(graph4, mask, pxl2Vtx);
 		tEnd = clock();
-		printf("**************slim flow %f estimateSegmentation slim time %.2fs\n", flow, (double)(tEnd - tStart) / CLOCKS_PER_SEC);
+		printf("**************slim flow %f estimateSegmentation slim time %.2fs\n", flow+graph4.sourceToSinkW, (double)(tEnd - tStart) / CLOCKS_PER_SEC);
 		cv::bitwise_or(mask2, mask, mask);
 	}
 	fflush(stdout);

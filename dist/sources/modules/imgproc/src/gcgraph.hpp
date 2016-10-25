@@ -45,6 +45,7 @@
 template <class TWeight> class GCGraph
 {
 public:
+	TWeight sourceToSinkW; // Graph reduction possibly creates an edge from source to sink. It is not used in MaxFlow
 	GCGraph();
 	GCGraph(unsigned int vtxCount, unsigned int edgeCount);
 	~GCGraph();
@@ -79,13 +80,14 @@ private:
 
 	std::vector<Vtx> vtcs;
 	std::vector<Edge> edges;
-	TWeight flow;
+	TWeight flow; 
 };
 
 template <class TWeight>
 GCGraph<TWeight>::GCGraph()
 {
 	flow = 0;
+	sourceToSinkW = 0;
 }
 
 template <class TWeight>
