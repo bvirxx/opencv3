@@ -14,18 +14,21 @@ We propose a simple parallel version of this algorithm, providing a significant 
     
    - We implement a mulithreaded version of the function estimateSegmentation() (cf. file grabcut.cpp), 
     using our overloaded function maxFlow(). Threads run on disjoint subgraphs, corresponding to disjoint subregions of the image, thus       no synchronization is needed. The residual graph is updated and the partial flows are added. 
+    A second parallel run with slightly shifted regions is performed to process inter-region edges.
     A last call to maxFlow() on the whole residual graph achieves the segmentation.
+    
+    The final segmentation is an exact min cut. 
     
 Tests with a 24 M pixel image :
 
      maxFlow()                                      48 s           grabcut()                63 s
      
-     parallel maxFlow() (64 regions, 8 threads)     29 s           parallel grabcut()       45 s
+     parallel maxFlow() (64 regions, 8 threads)     18 s           parallel grabcut()       34 s
 
  
 History
 
-  Most recent branch is workers_no_quadtree
+  Most recent branch is workers
   
   Last version is a test-only version
 
