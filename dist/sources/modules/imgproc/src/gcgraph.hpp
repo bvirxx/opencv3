@@ -55,7 +55,7 @@ public:
 	void addEdges(int i, int j, TWeight w, TWeight revw);
 	void addTermWeights(int i, TWeight sourceW, TWeight sinkW);
 	TWeight maxFlow();
-	TWeight maxFlow(int reg, const int reg_mask, const int reg_flag); // overloaded function for parallel maxFlow 
+	TWeight maxFlow(int reg, const int reg_flag); // overloaded function for parallel maxFlow 
 	inline bool inSourceSegment(int i);
 private:
 	class Vtx
@@ -406,7 +406,7 @@ TWeight GCGraph<TWeight>::maxFlow()
  achieve the computation. 
 */
 template <class TWeight>
-TWeight GCGraph<TWeight>::maxFlow(int reg, const int reg_mask, const int reg_flag)
+TWeight GCGraph<TWeight>::maxFlow(int reg, const int reg_flag)
 {
 	const int TERMINAL = -1, ORPHAN = -2;
 	Vtx stub, *nilNode = &stub, *first = nilNode, *last = nilNode;
@@ -415,7 +415,6 @@ TWeight GCGraph<TWeight>::maxFlow(int reg, const int reg_mask, const int reg_fla
 	Vtx *vtxPtr = &vtcs[0];
 	Edge *edgePtr = &edges[0];
 
-	reg = reg & reg_mask;
 	int count = 0;
 	std::vector<Vtx*> orphans;
 
@@ -426,7 +425,7 @@ TWeight GCGraph<TWeight>::maxFlow(int reg, const int reg_mask, const int reg_fla
 	for (int i = 0; i < (int)vtcs.size(); i++)
 	{
 		Vtx* v = vtxPtr + i;
-		if ((v->region[reg_flag] & reg_mask) != reg)
+		if (v->region[reg_flag] != reg)
 			continue;
 		v->ts = 0;
 		if (v->weight != 0)
@@ -464,7 +463,7 @@ TWeight GCGraph<TWeight>::maxFlow(int reg, const int reg_mask, const int reg_fla
 				{
 					if (edgePtr[ei^vt].weight == 0)
 						continue;
-					if (((vtxPtr + edgePtr[ei].dst)->region[reg_flag] & reg_mask) != reg)
+					if ((vtxPtr + edgePtr[ei].dst)->region[reg_flag] != reg)
 						continue;
 					u = vtxPtr + edgePtr[ei].dst;
 					if (!u->parent)
@@ -517,7 +516,7 @@ TWeight GCGraph<TWeight>::maxFlow(int reg, const int reg_mask, const int reg_fla
 				if ((ei = v->parent) < 0)
 					break;
 				weight = edgePtr[ei^k].weight;
-				CV_Assert((v->region[reg_flag] & reg_mask) == reg);   //TODO remove***********************************************
+				CV_Assert(v->region[reg_flag] == reg);   //TODO remove***********************************************
 				minWeight = MIN(minWeight, weight);
 				CV_Assert(minWeight > 0);
 			}
@@ -544,7 +543,7 @@ TWeight GCGraph<TWeight>::maxFlow(int reg, const int reg_mask, const int reg_fla
 					orphans.push_back(v);
 					v->parent = ORPHAN;
 				}
-				CV_Assert((v->region[reg_flag] & reg_mask) == reg);   //TODO remove***********************************************
+				CV_Assert(v->region[reg_flag] == reg);   //TODO remove***********************************************
 			}
 
 			v->weight = v->weight + minWeight*(1 - k * 2);
@@ -568,7 +567,7 @@ TWeight GCGraph<TWeight>::maxFlow(int reg, const int reg_mask, const int reg_fla
 
 			for (ei = v2->first; ei != 0; ei = edgePtr[ei].next)
 			{
-				if ((edgePtr[ei ^ (vt ^ 1)].weight == 0) || (((vtxPtr + edgePtr[ei].dst)->region[reg_flag] & reg_mask) != reg))
+				if ((edgePtr[ei ^ (vt ^ 1)].weight == 0) || ((vtxPtr + edgePtr[ei].dst)->region[reg_flag] != reg))
 					continue;
 				u = vtxPtr + edgePtr[ei].dst;
 				if (u->t != vt || u->parent == 0)
@@ -625,7 +624,7 @@ TWeight GCGraph<TWeight>::maxFlow(int reg, const int reg_mask, const int reg_fla
 			for (ei = v2->first; ei != 0; ei = edgePtr[ei].next)
 			{
 				u = vtxPtr + edgePtr[ei].dst;
-				if (((u->region[reg_flag])&reg_mask) != reg)
+				if (u->region[reg_flag] != reg)
 					continue;
 				ej = u->parent;
 				if (u->t != vt || !ej)
@@ -639,7 +638,7 @@ TWeight GCGraph<TWeight>::maxFlow(int reg, const int reg_mask, const int reg_fla
 				{
 					orphans.push_back(u);
 					u->parent = ORPHAN;
-					CV_Assert((u->region[reg_flag] & reg_mask) == reg);   //TODO remove***********************************************
+					CV_Assert(u->region[reg_flag] == reg);   //TODO remove***********************************************
 				}
 			}
 		}

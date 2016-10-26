@@ -447,8 +447,8 @@ static void learnGMMs( const Mat& img, const Mat& mask, const Mat& compIdxs, GMM
  multithread stuff 
 */
 
-#define QT_HEIGHT 3
-#define r_split (1<<QT_HEIGHT)
+
+#define r_split 8
 
 // regions in image
 #define r_count r_split*r_split
@@ -458,21 +458,18 @@ std::mutex m;
 // shared index for task queue
 int current_region = 0;
 
-static void worker(GCGraph<double> * graph, int l, int mask, double * result, int f)
+static void worker(GCGraph<double> * graph, double * result, int f)
 {
 	int region;
 
 	for (;;)
 	{
 		std::unique_lock<std::mutex> lk(m);
-		region = (current_region++) << l;
+		region = current_region++;
 		lk.unlock();
 		if (region >= r_count)
 			break;
-		if ((region &~mask) != 0)
-			continue;
-		//result[region] = graph->maxFlow(region, 255 << l);
-		result[region] = graph->maxFlow(region, mask, f);
+		result[region] = graph->maxFlow(region, f);
 	}
 }
 
@@ -493,16 +490,24 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
         edgeCount = 2*(4*img.cols*img.rows - 3*(img.cols + img.rows) + 2);
 
 	// region numbering
-#define TRANS 100
-	int h_size = (img.cols+TRANS) / r_split + 1, v_size = (img.rows + TRANS)/ r_split + 1;
+#define TRANS 200
+	//int h_size = (img.cols+TRANS) / r_split + 1, v_size = (img.rows + TRANS)/ r_split + 1;
+	int h_size = img.cols / r_split + 1, v_size = img.rows  / r_split + 1;
+
+	int r_split2 = r_split - 1;
+	int h_size2 = img.cols / r_split2 + 1, v_size2 = img.rows / r_split2 + 1;
 
 	std::vector<std::vector<int>> r_index(r_split, std::vector<int>(r_split));
+	std::vector<std::vector<int>> r_index2(r_split, std::vector<int>(r_split));
 
 	//quadtree(QT_HEIGHT, r_index);
 	for (int i = 0; i < r_split; i++)
 		for (int j = 0; j < r_split; j++)
 			r_index[i][j] = i*r_split + j;
 	
+	for (int i = 0; i < r_split2; i++)
+		for (int j = 0; j < r_split2; j++)
+			r_index2[i][j] = i*r_split2 + j;
     graph.create(vtxCount, edgeCount);
     Point p;
 	//int vtxIdx;
@@ -530,7 +535,7 @@ static void constructGCGraph_slim( const Mat& img, const Mat& mask, const GMM& b
 				else
 					if (r != r2)
 						alt_r = r2;
-
+				alt_r = r_index[p.y / v_size2][p.x / h_size2];
 				int vtxIdx = graph.addVtx(r, alt_r);
 				pxl2Vtx.at<int>(p) = vtxIdx;
 				fromSource = -log(bgdGMM(color));
@@ -638,42 +643,33 @@ static double estimateSegmentation_slim( GCGraph<double>& graph, Mat& mask, cons
 	// launch parallel partial max flow computations
 	current_region = 0; 
 	std::vector<std::thread> pool;
-
-	//for (int lv = 0; lv < 2*QT_HEIGHT+1; lv=lv+2)
 	
-	for (int lv = 0; lv < 1; lv = lv + 2)
-	{
-		for (int j = 0; j < n_thread; j++)
-			pool.push_back(std::thread(worker, &graph, lv, 255<<lv,  &result[0], 0));
+	for (int j = 0; j < n_thread; j++)
+		pool.push_back(std::thread(worker, &graph, &result[0], 0));
 
-		for (auto& t : pool)
-			t.join();
+	for (auto& t : pool)
+		t.join();
 
-		for (int i = 0; (i << lv) < r_count; i++)
-			flow += result[i << lv];
+	for (int i = 0; i < r_count; i++)
+		flow += result[i];
 
-		pool.clear();
-		current_region = 0;
+	pool.clear();
+	current_region = 0;
 		
-		for (int j = 0; j < n_thread; j++)
-			pool.push_back(std::thread(worker, &graph, lv, 255 << lv, &result[0], 1));
+	for (int j = 0; j < n_thread; j++)
+		pool.push_back(std::thread(worker, &graph, &result[0], 1));
 
-
-		//for (int j = 0; j < n_thread; j++)
-			//pool.push_back(std::thread(worker, &graph, lv, (255 << (lv - 1)) - 2, &result[0]));
-
-		for (auto& t : pool)
-			t.join();
+	for (auto& t : pool)
+		t.join();
 		
-		for (int i = 0; (i << lv) < r_count; i++)
-			flow += result[i << lv];
+	for (int i = 0; i < r_count; i++)
+		flow += result[i];
 
-		pool.clear();
-		current_region = 0;
-	}
-	
-	// last call on the whole residual graph 
-    flow +=graph.maxFlow();
+	pool.clear();
+	current_region = 0;
+
+	// last call using the whole residual graph 
+   // flow +=graph.maxFlow();
 
     Point p;
     for( p.y = 0; p.y < mask.rows; p.y++ )
@@ -713,7 +709,6 @@ static void constructGCGraph(const Mat& img, const Mat& mask, const GMM& bgdGMM,
 		edgeCount = 2 * (4 * img.cols*img.rows - 3 * (img.cols + img.rows) + 2);
 
 	// region numbering
-#define TRANS 100
 	int h_size = (img.cols + TRANS) / r_split+1, v_size = (img.rows + TRANS) / r_split+1;
 	
 	std::vector<std::vector<int>> r_index(r_split, std::vector<int>(r_split));
@@ -812,7 +807,7 @@ static double estimateSegmentation(GCGraph<double>& graph, Mat& mask)
 	for (int lv = 0; lv < 1; lv++)
 	{
 		for (int j = 0; j < n_thread; j++)
-			pool.push_back(std::thread(worker, &graph, lv, 255 << lv, &result[0],0));
+			pool.push_back(std::thread(worker, &graph, &result[0], 0));
 
 		for (auto& t : pool)
 			t.join();
